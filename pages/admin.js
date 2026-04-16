@@ -874,6 +874,132 @@ function OrderSearch({ token }) {
   );
 }
 
+function ManualOrderCreate({ token }) {
+  const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
+  const [form, setForm] = useState({
+    reference_no: '',
+    client: 'ASL',
+    ship_to_name: '',
+    customer_company: '',
+    country: 'Australia',
+    address1: '',
+    address2: '',
+    suburb: '',
+    state: '',
+    postcode: '',
+    phone: '',
+    email: '',
+    notes: '',
+    items: [{ ...emptyItem }],
+    push_to_shipstation: true,
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
+  const setItem = (idx, k, v) => setForm(prev => ({
+    ...prev,
+    items: prev.items.map((it, i) => (i === idx ? { ...it, [k]: v } : it)),
+  }));
+  const addItem = () => setForm(prev => ({ ...prev, items: [...prev.items, { ...emptyItem }] }));
+  const removeItem = (idx) => setForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }));
+
+  const submit = async () => {
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const payload = {
+        reference_no: form.reference_no,
+        client: form.client,
+        ship_to_name: form.ship_to_name,
+        customer_company: form.customer_company,
+        customer_phone: form.phone,
+        customer_email: form.email,
+        ship_to_address: {
+          country: form.country,
+          address1: form.address1,
+          address2: form.address2,
+          suburb: form.suburb,
+          state: form.state,
+          postcode: form.postcode,
+        },
+        notes: form.notes,
+        push_to_shipstation: form.push_to_shipstation,
+        items: form.items.map(it => ({
+          sku: it.sku,
+          product_name: it.product_name,
+          quantity: Number(it.quantity),
+          price: it.price === '' ? null : Number(it.price),
+        })),
+      };
+      const res = await fetch('/api/orders/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Create manual order failed');
+      setResult(json);
+      setForm(prev => ({ ...prev, reference_no: '', ship_to_name: '', customer_company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', phone: '', email: '', notes: '', items: [{ ...emptyItem }] }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Create Manual Order</h2>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <input value={form.ship_to_name} onChange={e => setField('ship_to_name', e.target.value)} placeholder="Recipient name *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.reference_no} onChange={e => setField('reference_no', e.target.value)} placeholder="Reference No." style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }}>
+            <option value="ASL">ASL</option>
+            <option value="CCEP">CCEP</option>
+          </select>
+          <input value={form.country} onChange={e => setField('country', e.target.value)} placeholder="Country *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Address line 1 *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Address line 2" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.suburb} onChange={e => setField('suburb', e.target.value)} placeholder="Suburb *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.postcode} onChange={e => setField('postcode', e.target.value)} placeholder="Postcode *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+        </div>
+        <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+        <label style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
+          <input type="checkbox" checked={form.push_to_shipstation} onChange={e => setField('push_to_shipstation', e.target.checked)} />
+          Push to ShipStation
+        </label>
+      </div>
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Order Line Items *</div>
+        {form.items.map((it, idx) => (
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.6fr 0.7fr 0.4fr', gap: 8, marginBottom: 8 }}>
+            <input value={it.sku} onChange={e => setItem(idx, 'sku', e.target.value)} placeholder="SKU *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <input value={it.product_name} onChange={e => setItem(idx, 'product_name', e.target.value)} placeholder="Name" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <input value={it.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} placeholder="Qty *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <input value={it.price} onChange={e => setItem(idx, 'price', e.target.value)} placeholder="Price" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <button onClick={() => removeItem(idx)} disabled={form.items.length === 1} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer' }}>-</button>
+          </div>
+        ))}
+        <button onClick={addItem} style={{ border: `1px solid ${C.accentDim}`, borderRadius: 8, background: '#fff', color: C.accent, padding: '8px 12px', cursor: 'pointer', fontSize: 12 }}>+ Add Item</button>
+      </div>
+
+      {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
+      {result && <div style={{ color: C.success, background: C.successBg, border: '1px solid #A7F3D0', borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 12 }}>✅ Created {result.data?.order_number}. ShipStation: {result.shipstation?.pushed ? 'pushed' : `not pushed (${result.shipstation?.reason || 'n/a'})`}</div>}
+
+      <button onClick={submit} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+        {loading ? 'Creating...' : 'Create Manual Order'}
+      </button>
+    </div>
+  );
+}
+
 // ── Main Admin Page ────────────────────────────────────────────
 export default function AdminPage() {
   const [token,   setToken]   = useState(null);
@@ -896,6 +1022,7 @@ export default function AdminPage() {
 
   const nav = [
     { key: 'orders',     label: '📦 ECCANG Orders' },
+    { key: 'manual_create', label: '📝 Create Manual Order' },
     { key: 'order_type', label: '⚙️ Order Type' },
     { key: 'jdl_orders', label: '🚢 JDL Orders' },
     { key: 'inventory',  label: '📊 Inventory' },
@@ -936,6 +1063,7 @@ export default function AdminPage() {
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
           {section === 'orders'     && <OrderSearch    token={token} />}
+          {section === 'manual_create' && <ManualOrderCreate token={token} />}
           {section === 'order_type' && <OrderTypeUpdate token={token} />}
           {section === 'jdl_orders' && <JdlOrderSearch token={token} />}
           {section === 'inventory'  && <InventoryView  token={token} />}
