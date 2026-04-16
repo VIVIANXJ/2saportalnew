@@ -14,7 +14,7 @@ const APP_SECRET      = process.env.JDL_APP_SECRET;
 const ACCESS_TOKEN    = process.env.JDL_ACCESS_TOKEN;
 const CUSTOMER_CODE   = process.env.JDL_CUSTOMER_CODE   || 'KH20000015945';
 const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT || '';
-const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '';
+const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '2satest';
 const OUTSTOCK_PATH   = '/fop/open/outstockprovider/queryoutstocklist';
 const PAGE_SIZE       = 50;
 
@@ -133,7 +133,7 @@ export default async function handler(req, res) {
       customerCode:    CUSTOMER_CODE,
     };
     if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
-    if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
+    baseBody.systemCode = SYSTEM_CODE;
 
     // 按订单号搜索
     if (q?.trim()) {
@@ -146,7 +146,7 @@ export default async function handler(req, res) {
       let p = 1;
       let hasMore = true;
       while (hasMore && p <= 20) {
-        const data = await callJdl({ ...baseBody, pageNo: p });
+        const data = await callJdl({ ...baseBody, page: p, pageNo: p, pageNum: p });
         if (!isJdlSuccess(data)) {
           if (allOrders.length > 0) break;
           return res.status(400).json({ error: data.message || `JDL code ${data.code}`, raw: data });
@@ -167,7 +167,8 @@ export default async function handler(req, res) {
     }
 
     // 单页或搜索
-    const data = await callJdl({ ...baseBody, pageNo: parseInt(page) });
+    const curPage = parseInt(page);
+    const data = await callJdl({ ...baseBody, page: curPage, pageNo: curPage, pageNum: curPage });
     console.log('[JDL orders] response:', JSON.stringify(data).slice(0, 400));
 
     if (!isJdlSuccess(data)) {
