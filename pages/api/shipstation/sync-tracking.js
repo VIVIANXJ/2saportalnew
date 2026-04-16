@@ -33,6 +33,24 @@ async function fetchSSOrder(orderNumber) {
   const data = JSON.parse(text);
   const orders = data.orders || [];
   console.log('[SS sync] orders found:', orders.length);
+  if (orders.length > 0) {
+    // 打印完整订单数据，找 tracking 字段位置
+    const o = orders[0];
+    console.log('[SS sync] full order keys:', Object.keys(o).join(', '));
+    console.log('[SS sync] tracking fields:', JSON.stringify({
+      trackingNumber: o.trackingNumber,
+      carrierCode: o.carrierCode,
+      serviceCode: o.serviceCode,
+      shipDate: o.shipDate,
+      holdUntilDate: o.holdUntilDate,
+      labelMessages: o.labelMessages,
+      shipments: o.shipments,
+      fulfillments: o.fulfillments,
+      // advancedOptions tracking fields
+      externallyFulfilled: o.advancedOptions?.externallyFulfilled,
+      externallyFulfilledBy: o.advancedOptions?.externallyFulfilledBy,
+    }));
+  }
   return orders;
 }
 
