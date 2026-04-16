@@ -129,6 +129,7 @@ export default function Portal() {
   const [warehouseStatus, setWarehouseStatus] = useState({});
   const [orderPage,   setOrderPage]   = useState(1);
   const [invPage,     setInvPage]     = useState(1);
+  const [orderTotal,  setOrderTotal]  = useState(0);
   const PAGE_SIZE = 100;
 
   // 筛选状态
@@ -138,20 +139,27 @@ export default function Portal() {
   const [orderSearch,  setOrderSearch]  = useState('');
   const inputRef = useRef(null);
 
-  const search = useCallback(async (q, type) => {
+  const search = useCallback(async (q, type, targetOrderPage = 1) => {
     setLoading(true);
     setError(null);
-    setOrderPage(1);
-    setInvPage(1);
+    if (tab === 'orders') {
+      setOrderPage(targetOrderPage);
+    } else {
+      setInvPage(1);
+    }
     try {
       if (tab === 'orders') {
-        const params = new URLSearchParams(searchQ ? { pageSize: '50' } : { all: '1', pageSize: '50' });
-        if (q) params.set('q', q);
+        const params = new URLSearchParams({
+          page: String(targetOrderPage),
+          pageSize: String(PAGE_SIZE),
+        });
+        if (q) params.set('q', q.trim());
         if (type !== 'all') params.set('type', type);
-        const res  = await fetch(`/api/orders/eccang?${params}`);
+        const res  = await fetch(`/api/orders?${params}`);
         const json = await res.json();
         if (!json.success) throw new Error(json.error);
         setOrders(json.data || []);
+        setOrderTotal(json.pagination?.total || 0);
       } else {
         const params = new URLSearchParams();
         if (q) params.set('sku', q);
@@ -169,12 +177,13 @@ export default function Portal() {
     }
   }, [tab]);
 
-  const handleSearch = (e) => { e.preventDefault(); search(searchQ, orderType); };
+  const handleSearch = (e) => { e.preventDefault(); search(searchQ, orderType, 1); };
 
   const handleTabSwitch = (t) => {
     setTab(t); setOrders([]); setInventory([]);
     setSearched(false); setError(null); setSearchQ('');
     setOrderPage(1); setInvPage(1);
+    setOrderTotal(0);
     setInvFilter('all'); setHideZero(false); setInvSearch(''); setOrderSearch('');
     setTimeout(() => inputRef.current?.focus(), 50);
   };
@@ -296,7 +305,7 @@ export default function Portal() {
               }}>
                 {[['all','All'], ['standard','Standard'], ['kitting','Kitting']].map(([val, label]) => (
                   <button key={val} type="button"
-                    onClick={() => { setOrderType(val); search(searchQ, val); }}
+                    onClick={() => { setOrderType(val); search(searchQ, val, 1); }}
                     style={{
                       background: orderType === val ? C.accentDim : 'transparent',
                       border: 'none', cursor: 'pointer',
@@ -381,10 +390,9 @@ export default function Portal() {
                 (o.reference_no || '').toLowerCase().includes(q)
               )
             : orders;
-          const pagedOrders = filteredOrders.slice((orderPage-1)*PAGE_SIZE, orderPage*PAGE_SIZE);
           return (
           <div style={{ animation: 'fadeIn 0.2s ease' }}>
-            {filteredOrders.length === 0 ? (
+            {orders.length === 0 ? (
               <div style={{
                 textAlign: 'center', color: C.muted, padding: '64px 0',
                 background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
@@ -396,7 +404,7 @@ export default function Portal() {
               <div style={{ background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                 <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>
-                    {filteredOrders.length} result{filteredOrders.length !== 1 ? 's' : ''}
+                    {orderTotal} result{orderTotal !== 1 ? 's' : ''}
                   </span>
                   <input
                     value={orderSearch}
@@ -418,7 +426,7 @@ export default function Portal() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedOrders.map(order => (
+                    {filteredOrders.map(order => (
                       <>
                         <tr
                           key={order.id}
@@ -477,7 +485,7 @@ export default function Portal() {
                     ))}
                   </tbody>
                 </table>
-                <Pagination page={orderPage} total={filteredOrders.length} pageSize={PAGE_SIZE} onChange={setOrderPage} />
+                <Pagination page={orderPage} total={orderTotal} pageSize={PAGE_SIZE} onChange={(p) => search(searchQ, orderType, p)} />
               </div>
             )}
           </div>
