@@ -15,6 +15,12 @@ export default async function handler(req, res) {
 
   const { id } = req.query;
 
+  if (id === 'sync-eccang' || id === 'type' || id === 'eccang' || id === 'jdl' || id === 'update-tracking') {
+    return res.status(404).json({
+      error: 'Route conflict detected. Please redeploy so static API route is available.',
+    });
+  }
+
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('orders')
