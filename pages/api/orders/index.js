@@ -32,11 +32,19 @@ export default async function handler(req, res) {
       warehouse,
       page = '1',
       pageSize = '20',
+      all,
+      sort_by = 'created_at',
+      sort_dir = 'desc',
     } = req.query;
 
     const pageNum  = Math.max(1, parseInt(page));
-    const limit    = Math.min(100, parseInt(pageSize));
+    const limit    = Math.min(200, Math.max(1, parseInt(pageSize) || 20));
     const offset   = (pageNum - 1) * limit;
+    const isAll = all === '1';
+    const allLimit = Math.min(20000, Math.max(1, parseInt(req.query.allLimit || '10000', 10) || 10000));
+    const sortable = new Set(['created_at', 'order_number', 'reference_no']);
+    const orderField = sortable.has(String(sort_by)) ? String(sort_by) : 'created_at';
+    const ascending = String(sort_dir).toLowerCase() === 'asc';
 
     let query = supabase
       .from('orders')
@@ -47,8 +55,8 @@ export default async function handler(req, res) {
           kitting_components (component_sku, component_name, qty_per_kit, total_qty)
         )
       `, { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order(orderField, { ascending })
+      .order('created_at', { ascending: false });
 
     // Fuzzy search on order_number OR reference_no
     if (q && q.trim()) {
@@ -60,6 +68,12 @@ export default async function handler(req, res) {
     if (status)    query = query.eq('status', status);
     if (client)    query = query.eq('client', client);
     if (warehouse) query = query.eq('warehouse', warehouse);
+
+    if (isAll) {
+      query = query.range(0, allLimit - 1);
+    } else {
+      query = query.range(offset, offset + limit - 1);
+    }
 
     const { data, error, count } = await query;
 
@@ -73,9 +87,9 @@ export default async function handler(req, res) {
       data,
       pagination: {
         total: count,
-        page: pageNum,
-        pageSize: limit,
-        totalPages: Math.ceil((count || 0) / limit),
+        page: isAll ? 1 : pageNum,
+        pageSize: isAll ? (data?.length || 0) : limit,
+        totalPages: isAll ? 1 : Math.ceil((count || 0) / limit),
       },
     });
   }
