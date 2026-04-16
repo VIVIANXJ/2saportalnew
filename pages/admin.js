@@ -1067,7 +1067,7 @@ function ManualOrderCreate({ token }) {
     client: 'ASL',
     ship_to_name: '',
     customer_company: '',
-    country: 'Australia',
+    country: 'AU',
     address1: '',
     address2: '',
     suburb: '',
@@ -1146,7 +1146,19 @@ function ManualOrderCreate({ token }) {
             <option value="ASL">ASL</option>
             <option value="CCEP">CCEP</option>
           </select>
-          <input value={form.country} onChange={e => setField('country', e.target.value)} placeholder="Country *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <select value={form.country} onChange={e => setField('country', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
+            <option value="AU">AU — Australia</option>
+            <option value="US">US — United States</option>
+            <option value="GB">GB — United Kingdom</option>
+            <option value="NZ">NZ — New Zealand</option>
+            <option value="CA">CA — Canada</option>
+            <option value="SG">SG — Singapore</option>
+            <option value="JP">JP — Japan</option>
+            <option value="CN">CN — China</option>
+            <option value="HK">HK — Hong Kong</option>
+            <option value="DE">DE — Germany</option>
+            <option value="FR">FR — France</option>
+          </select>
           <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Address line 1 *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Address line 2" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
