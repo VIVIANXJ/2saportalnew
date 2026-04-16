@@ -6,6 +6,24 @@ const ECCANG_BASE_URL = process.env.ECCANG_BASE_URL;
 const APP_TOKEN = process.env.ECCANG_APP_TOKEN;
 const APP_KEY = process.env.ECCANG_APP_KEY;
 const WAREHOUSE_CODE = process.env.ECCANG_WAREHOUSE_CODE || 'AUSYD';
+const DEFAULT_SYNC_CLIENT = (process.env.DEFAULT_SYNC_CLIENT || 'ASL').toUpperCase() === 'CCEP' ? 'CCEP' : 'ASL';
+
+function normaliseStatus(rawStatus) {
+  const s = String(rawStatus || '').toLowerCase();
+  if (s.includes('cancel')) return 'cancelled';
+  if (s.includes('deliver') || s.includes('sign') || s.includes('完成')) return 'delivered';
+  if (s.includes('ship') || s.includes('out') || s.includes('出库') || s.includes('dispatch')) return 'shipped';
+  if (s.includes('pack')) return 'packed';
+  if (s.includes('process') || s.includes('pick') || s.includes('分拣')) return 'processing';
+  return 'pending';
+}
+
+function resolveClient(referenceNo) {
+  const ref = String(referenceNo || '').toUpperCase();
+  if (ref.startsWith('ASL')) return 'ASL';
+  if (ref.startsWith('CCEP')) return 'CCEP';
+  return DEFAULT_SYNC_CLIENT;
+}
 
 function buildSoap(service, paramsJson) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -43,19 +61,25 @@ async function callEccang(params) {
 function norm(order) {
   const referenceNo = order.ref_code || order.ref_no || order.reference_no || order.reference || '';
   const statusValue = order.order_status_name || order.order_status || order.status_name || order.status || '';
+  const shipToAddressObj = {
+    country: order.country || null,
+    province: order.province || order.state || null,
+    city: order.city || order.town || null,
+    address: order.address || order.address1 || order.street || null,
+  };
   return {
     order_number: order.order_code,
     reference_no: referenceNo || null,
-    warehouse: order.warehouse_code || WAREHOUSE_CODE,
-    status: String(statusValue || '').toLowerCase() || 'pending',
+    warehouse: 'ECCANG',
+    status: normaliseStatus(statusValue),
     carrier: order.logistics_name || order.logistics_channel_name || null,
     tracking_number: order.logistics_code || order.tracking_number || order.tracking_no || null,
     created_at: order.create_time || null,
     shipped_at: order.delivery_time || null,
     ship_to_name: order.consignee_name || order.receiver_name || null,
-    ship_to_address: [order.country, order.province, order.city, order.address].filter(Boolean).join(', ') || null,
+    ship_to_address: shipToAddressObj,
     order_type: 'standard',
-    client: referenceNo?.startsWith('ASL') ? 'ASL' : referenceNo?.startsWith('CCEP') ? 'CCEP' : '2SA',
+    client: resolveClient(referenceNo),
   };
 }
 
