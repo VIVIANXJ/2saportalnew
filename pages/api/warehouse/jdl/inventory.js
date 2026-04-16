@@ -6,7 +6,7 @@ const APP_SECRET      = process.env.JDL_APP_SECRET;
 const ACCESS_TOKEN    = process.env.JDL_ACCESS_TOKEN;
 const CUSTOMER_CODE   = process.env.JDL_CUSTOMER_CODE   || 'KH20000015945';
 const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT || '';
-const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '';
+const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '2satest';
 const WAREHOUSES = (process.env.JDL_WAREHOUSES || 'C0000001174,C0000001901')
   .split(',')
   .map(v => v.trim())
@@ -67,13 +67,14 @@ async function queryWarehouse(warehouseCode, skuList) {
     customerCode:    CUSTOMER_CODE,
     warehouseCode,
     systemType:      '10',
-    cargoOwnerCode:  process.env.JDL_CARGO_OWNER_CODE || '',
   };
   if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
-  if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
+  baseBody.systemCode = SYSTEM_CODE;
+  if (process.env.JDL_CARGO_OWNER_CODE) baseBody.cargoOwnerCode = process.env.JDL_CARGO_OWNER_CODE;
   if (skuList?.length) baseBody.customerGoodsIdList = skuList;
 
-  // 同时调非批次 + 批次库存接口
+  // 同时请求两个接口，但避免把同一库存重复相加：
+  // 优先使用非批次库存；仅当非批次为空时回退到批次库存。
   const [r1, r2] = await Promise.allSettled([
     callApi(STOCK_PATH,       { ...baseBody }),
     callApi(BATCH_STOCK_PATH, { ...baseBody }),
@@ -122,12 +123,12 @@ async function queryWarehouse(warehouseCode, skuList) {
   console.log('[JDL] r2:', r2.status, r2.status==='fulfilled' ? JSON.stringify(r2.value).slice(0,200) : r2.reason?.message);
 
   let hasData = false;
-  if (r1.status === 'fulfilled' && isJdlSuccess(r1.value)) {
-    addItems(pickRecords(r1.value));
-    hasData = true;
-  }
-  if (r2.status === 'fulfilled' && isJdlSuccess(r2.value)) {
-    addItems(pickRecords(r2.value));
+  const records1 = (r1.status === 'fulfilled' && isJdlSuccess(r1.value)) ? pickRecords(r1.value) : [];
+  const records2 = (r2.status === 'fulfilled' && isJdlSuccess(r2.value)) ? pickRecords(r2.value) : [];
+
+  const chosenRecords = records1.length > 0 ? records1 : records2;
+  if (chosenRecords.length > 0) {
+    addItems(chosenRecords);
     hasData = true;
   }
 
