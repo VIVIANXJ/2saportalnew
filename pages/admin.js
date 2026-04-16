@@ -327,11 +327,19 @@ function OrderTypeUpdate({ token }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
 
   const loadOrders = async () => {
     setLoading(true); setError('');
     try {
-      const params = new URLSearchParams(q.trim() ? { q: q.trim(), pageSize: '50' } : { pageSize: '50' });
+      const params = new URLSearchParams({
+        all: '1',
+        allLimit: '20000',
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
+      if (q.trim()) params.set('q', q.trim());
       const res = await fetch(`/api/orders?${params}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -425,6 +433,17 @@ function OrderTypeUpdate({ token }) {
           <button onClick={loadOrders} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             {loading ? 'Loading...' : 'Search'}
           </button>
+          <select value={`${sortBy}:${sortDir}`} onChange={(e) => {
+            const [sb, sd] = e.target.value.split(':');
+            setSortBy(sb); setSortDir(sd);
+          }} style={{ padding: '10px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
+            <option value="created_at:desc">Time ↓</option>
+            <option value="created_at:asc">Time ↑</option>
+            <option value="order_number:asc">Order No. ↑</option>
+            <option value="order_number:desc">Order No. ↓</option>
+            <option value="reference_no:asc">Reference ↑</option>
+            <option value="reference_no:desc">Reference ↓</option>
+          </select>
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
@@ -605,6 +624,7 @@ function JdlOrderSearch({ token }) {
   const [error,     setError]     = useState('');
   const [searched,  setSearched]  = useState(false);
   const [ordCurPage, setOrdCurPage] = useState(1);
+  const [expandedItems, setExpandedItems] = useState({});
   const PAGE_SIZE = 100;
 
   const search = async () => {
@@ -678,7 +698,32 @@ function JdlOrderSearch({ token }) {
                     <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '8%' }}>{o.carrier || '—'}</td>
                     <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: 'monospace', color: C.muted, width: '10%' }}>{o.tracking_number || '—'}</td>
                     <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '22%', wordBreak: 'break-word', lineHeight: 1.3 }}>
-                      {o.order_items?.map(it => `${it.sku}×${it.qty_actual||it.quantity}`).join(', ') || '—'}
+                      {(() => {
+                        const key = o.order_number || o.id || i;
+                        const itemsText = o.order_items?.map(it => `${it.sku}×${it.qty_actual||it.quantity}`).join(', ') || '';
+                        if (!itemsText) return '—';
+                        if (expandedItems[key]) {
+                          return (
+                            <>
+                              <div>{itemsText}</div>
+                              <button onClick={() => setExpandedItems(prev => ({ ...prev, [key]: false }))} style={{ marginTop: 4, border: 'none', background: 'none', color: C.accent, cursor: 'pointer', fontSize: 11, padding: 0 }}>
+                                collapse
+                              </button>
+                            </>
+                          );
+                        }
+                        const shortText = itemsText.length > 50 ? `${itemsText.slice(0, 50)}...` : itemsText;
+                        return (
+                          <>
+                            <div>{shortText}</div>
+                            {itemsText.length > 50 && (
+                              <button onClick={() => setExpandedItems(prev => ({ ...prev, [key]: true }))} style={{ marginTop: 4, border: 'none', background: 'none', color: C.accent, cursor: 'pointer', fontSize: 11, padding: 0 }}>
+                                view all
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '8%' }}>
                       {o.outbound_at ? String(o.outbound_at).slice(0,10) : '—'}
@@ -706,6 +751,8 @@ function OrderSearch({ token }) {
   const [searched,setSearched]= useState(false);
   const [ordCurPage, setOrdCurPage] = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortDir, setSortDir] = useState('desc');
   const PAGE_SIZE = 100;
 
   const search = async (targetPage = 1) => {
@@ -714,6 +761,8 @@ function OrderSearch({ token }) {
       const params = new URLSearchParams({
         page: String(targetPage),
         pageSize: String(PAGE_SIZE),
+        sort_by: sortBy,
+        sort_dir: sortDir,
       });
       if (q.trim()) params.set('q', q.trim());
       const res  = await fetch(`/api/orders?${params}`, {
@@ -767,6 +816,17 @@ function OrderSearch({ token }) {
         <button onClick={() => search(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
         </button>
+        <select value={`${sortBy}:${sortDir}`} onChange={(e) => {
+          const [sb, sd] = e.target.value.split(':');
+          setSortBy(sb); setSortDir(sd);
+        }} style={{ padding: '10px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
+          <option value="created_at:desc">Time ↓</option>
+          <option value="created_at:asc">Time ↑</option>
+          <option value="order_number:asc">Order No. ↑</option>
+          <option value="order_number:desc">Order No. ↓</option>
+          <option value="reference_no:asc">Reference ↑</option>
+          <option value="reference_no:desc">Reference ↓</option>
+        </select>
         <button onClick={syncFromEccang} style={{ background: '#fff', color: C.accent, border: `1px solid ${C.accentDim}`, borderRadius: 8, padding: '10px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {syncing ? 'Syncing...' : 'Sync ECCANG -> DB'}
         </button>
