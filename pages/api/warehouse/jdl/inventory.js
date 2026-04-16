@@ -76,11 +76,36 @@ async function queryWarehouse(warehouseCode, skuList) {
       const sku = item.sku || item.customerGoodsId || item.jdGoodsId;
       if (!sku) return;
       if (!skuMap[sku]) skuMap[sku] = { sku, sellable: 0, reserved: 0, onway: 0, total: 0 };
-      skuMap[sku].sellable += item.sellable ?? item.stockQuantity               ?? 0;
-      skuMap[sku].reserved += item.reserved ?? item.preoccupiedQuantity         ?? 0;
-      skuMap[sku].onway    += item.onway    ?? item.purchaseWaitinStockQuantity  ?? 0;
-      skuMap[sku].total    += item.total    ?? item.totalQuantity                ?? 0;
+      skuMap[sku].sellable += Number(item.sellable ?? item.stockQuantity               ?? 0);
+      skuMap[sku].reserved += Number(item.reserved ?? item.preoccupiedQuantity         ?? 0);
+      skuMap[sku].onway    += Number(item.onway    ?? item.purchaseWaitinStockQuantity  ?? 0);
+      skuMap[sku].total    += Number(item.total    ?? item.totalQuantity                ?? 0);
     });
+  };
+
+  const parseMaybeJson = (value) => {
+    if (!value || typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+  const pickPageObj = (raw) => {
+    const lvl1 = parseMaybeJson(raw?.data);
+    const lvl2 = parseMaybeJson(lvl1?.data || lvl1?.result || lvl1?.pageResult || lvl1);
+    return parseMaybeJson(lvl2) || {};
+  };
+  const pickRecords = (raw) => {
+    const pageObj = pickPageObj(raw);
+    const arr = pageObj?.records
+      || pageObj?.list
+      || pageObj?.rows
+      || pageObj?.items
+      || pageObj?.resultList
+      || pageObj?.dataList
+      || [];
+    return Array.isArray(arr) ? arr : [];
   };
 
   console.log('[JDL] r1:', r1.status, r1.status==='fulfilled' ? JSON.stringify(r1.value).slice(0,200) : r1.reason?.message);
@@ -88,11 +113,11 @@ async function queryWarehouse(warehouseCode, skuList) {
 
   let hasData = false;
   if (r1.status === 'fulfilled' && (r1.value.code === 200 || r1.value.code === '200')) {
-    addItems(r1.value.data?.records);
+    addItems(pickRecords(r1.value));
     hasData = true;
   }
   if (r2.status === 'fulfilled' && (r2.value.code === 200 || r2.value.code === '200')) {
-    addItems(r2.value.data?.records);
+    addItems(pickRecords(r2.value));
     hasData = true;
   }
 
