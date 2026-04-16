@@ -206,5 +206,53 @@ export default async function handler(req, res) {
     });
   }
 
+
+  if (req.method === 'PATCH') {
+    const auth  = req.headers.authorization || '';
+    const token = auth.replace('Bearer ', '');
+    if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Order id required' });
+
+    const { reference_no, tracking_number, carrier, status, notes, push_to_shipstation } = req.body || {};
+
+    const updates = {};
+    if (reference_no  !== undefined) updates.reference_no  = reference_no;
+    if (tracking_number !== undefined) updates.tracking_number = tracking_number;
+    if (carrier       !== undefined) updates.carrier       = carrier;
+    if (status        !== undefined) updates.status        = status;
+    if (notes         !== undefined) updates.notes         = notes;
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .update(updates)
+      .eq('id', id)
+      .ilike('order_number', 'MAN-%')
+      .select('*, order_items(sku, product_name, quantity, notes)')
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!order) return res.status(404).json({ error: 'Manual order not found' });
+
+    // Optionally re-push to ShipStation
+    let shipstation = { pushed: false, reason: 'not requested' };
+    if (push_to_shipstation) {
+      const orderPayload = {
+        order_number: order.order_number,
+        reference_no: order.reference_no,
+        ship_to_name: order.ship_to_name,
+        ship_to_address: order.ship_to_address,
+        customer_phone: order.customer_phone,
+        customer_email: order.customer_email,
+        customer_company: order.customer_company,
+        items: order.order_items || [],
+      };
+      shipstation = await pushToShipStation(orderPayload);
+    }
+
+    return res.status(200).json({ success: true, data: order, shipstation });
+  }
+
   return res.status(405).json({ error: 'Method not allowed' });
 }
