@@ -149,6 +149,10 @@ export default function Portal() {
   const [orderPage,   setOrderPage]   = useState(1);
   const [invPage,     setInvPage]     = useState(1);
   const [orderTotal,  setOrderTotal]  = useState(0);
+  const [manualOrders, setManualOrders] = useState([]);
+  const [manualPage, setManualPage] = useState(1);
+  const [manualTotal, setManualTotal] = useState(0);
+  const [searchedManual, setSearchedManual] = useState(false);
   const [orderSortBy, setOrderSortBy] = useState('created_at');
   const [orderSortDir, setOrderSortDir] = useState('desc');
   const [orderWarehouseFilter, setOrderWarehouseFilter] = useState('all');
@@ -207,7 +211,7 @@ export default function Portal() {
         const combined = [...(dbJson.data || []), ...jdlOrders];
         setOrders(combined);
         setOrderTotal(combined.length);
-      } else {
+      } else if (tab === 'inventory') {
         const params = new URLSearchParams();
         if (q) params.set('sku', q);
         const res  = await fetch(`/api/warehouse/inventory?${params}`);
@@ -215,6 +219,15 @@ export default function Portal() {
         if (!json.success) throw new Error(json.error);
         setInventory(json.data || []);
         setWarehouseStatus(json.warehouses || {});
+      } else if (tab === 'manual_orders') {
+        const params = new URLSearchParams({ page: String(targetOrderPage), pageSize: String(PAGE_SIZE) });
+        if (q) params.set('q', q.trim());
+        const res = await fetch(`/api/orders/manual?${params}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Failed to load manual orders');
+        setManualOrders(json.data || []);
+        setManualTotal(json.pagination?.total || 0);
+        setManualPage(targetOrderPage);
       }
     } catch (e) {
       setError(e.message);
@@ -222,6 +235,7 @@ export default function Portal() {
       setLoading(false);
       if (tab === 'orders') setSearchedOrders(true);
       if (tab === 'inventory') setSearchedInventory(true);
+      if (tab === 'manual_orders') setSearchedManual(true);
     }
   }, [tab, orderSortBy, orderSortDir]);
 
@@ -233,7 +247,7 @@ export default function Portal() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  const currentTabSearched = tab === 'orders' ? searchedOrders : searchedInventory;
+  const currentTabSearched = tab === 'orders' ? searchedOrders : tab === 'inventory' ? searchedInventory : searchedManual;
 
   const orderWarehouseKey = (order) => {
     const w = String(order?.warehouse || '').toUpperCase();
@@ -310,7 +324,7 @@ export default function Portal() {
           borderRadius: 10, padding: 4,
           width: 'fit-content',
         }}>
-          {[['orders', '▦  Orders'], ['inventory', '◉  Inventory']].map(([key, label]) => (
+          {[['orders', '▦  Orders'], ['manual_orders', '📝  Manual Orders'], ['inventory', '◉  Inventory']].map(([key, label]) => (
             <button key={key} className="tab-btn" onClick={() => handleTabSwitch(key)} style={{
               background: tab === key ? C.surface : 'transparent',
               border: 'none', cursor: 'pointer',
@@ -342,7 +356,9 @@ export default function Portal() {
                 onChange={e => setSearchQ(e.target.value)}
                 placeholder={tab === 'orders'
                   ? 'Search by order number or reference no...'
-                  : 'Search by SKU...'}
+                  : tab === 'manual_orders'
+                    ? 'Search by manual order number or reference...'
+                    : 'Search by SKU...'}
                 style={{
                   width: '100%', padding: '10px 12px 10px 38px',
                   background: C.bg,
@@ -582,6 +598,44 @@ export default function Portal() {
           </div>
           );
         })()}
+        {tab === 'manual_orders' && searchedManual && !loading && (
+          <div style={{ animation: 'fadeIn 0.2s ease' }}>
+            {manualOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', color: C.muted, padding: '64px 0', background: C.surface, borderRadius: 12, border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📝</div>
+                <div style={{ fontSize: 14 }}>No manual orders found</div>
+              </div>
+            ) : (
+              <div style={{ background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted, fontWeight: 500 }}>
+                  {manualTotal} result{manualTotal !== 1 ? 's' : ''}
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
+                      {['Order No.', 'Reference', 'Client', 'Status', 'Ship To', 'Created'].map(h => (
+                        <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manualOrders.map(order => (
+                      <tr key={order.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '12px 16px', color: C.accent, fontWeight: 600 }}>{order.order_number}</td>
+                        <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.reference_no || '—'}</td>
+                        <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.client || '—'}</td>
+                        <td style={{ padding: '12px 16px' }}><Badge status={order.status} /></td>
+                        <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.ship_to_name || '—'}</td>
+                        <td style={{ padding: '12px 16px', color: C.muted }}>{order.created_at ? new Date(order.created_at).toLocaleDateString('en-AU') : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <Pagination page={manualPage} total={manualTotal} pageSize={PAGE_SIZE} onChange={(p) => search(searchQ, orderType, p)} />
+              </div>
+            )}
+          </div>
+        )}
         {/* Inventory table */}
         {tab === 'inventory' && searchedInventory && !loading && (() => {
           // 过滤逻辑
