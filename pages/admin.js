@@ -683,22 +683,29 @@ function OrderSearch({ token }) {
   const [q,       setQ]       = useState('');
   const [orders,  setOrders]  = useState([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error,   setError]   = useState('');
   const [searched,setSearched]= useState(false);
   const [ordCurPage, setOrdCurPage] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
   const PAGE_SIZE = 100;
 
-  const search = async () => {
-    setLoading(true); setError(''); setSearched(true); setOrdCurPage(1);
+  const search = async (targetPage = 1) => {
+    setLoading(true); setError(''); setSearched(true);
     try {
-      const params = new URLSearchParams(q ? { pageSize: '100' } : { all: '1', pageSize: '100', maxPages: '500' });
-      if (q) params.set('q', q);
-      const res  = await fetch(`/api/orders/eccang?${params}`, {
+      const params = new URLSearchParams({
+        page: String(targetPage),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (q.trim()) params.set('q', q.trim());
+      const res  = await fetch(`/api/orders?${params}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.error);
+      if (!json.success) throw new Error(json.error || 'Failed to load orders');
       setOrders(json.data || []);
+      setTotalOrders(json.pagination?.total || 0);
+      setOrdCurPage(targetPage);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -706,23 +713,44 @@ function OrderSearch({ token }) {
     }
   };
 
+  const syncFromEccang = async () => {
+    setSyncing(true); setError('');
+    try {
+      const res = await fetch('/api/orders/sync-eccang', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ pageSize: 100, maxPages: 500 }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Sync failed');
+      await search(1);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Order Search (ECCANG Live)</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Order Search (Admin Managed)</h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         <input value={q} onChange={e => setQ(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
+          onKeyDown={e => e.key === 'Enter' && search(1)}
           placeholder="Order number or reference..."
           style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
-        <button onClick={search} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+        <button onClick={() => search(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
+        </button>
+        <button onClick={syncFromEccang} style={{ background: '#fff', color: C.accent, border: `1px solid ${C.accentDim}`, borderRadius: 8, padding: '10px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          {syncing ? 'Syncing...' : 'Sync ECCANG -> DB'}
         </button>
       </div>
       {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
       {searched && !loading && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-            {orders.length} orders
+            {totalOrders} orders
           </div>
           {orders.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No orders found</div>
@@ -737,7 +765,7 @@ function OrderSearch({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
+                {orders.map((o, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600 }}>{o.order_number}</td>
                     <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.reference_no || '—'}</td>
@@ -752,7 +780,7 @@ function OrderSearch({ token }) {
                 ))}
               </tbody>
             </table>
-            <Pagination page={ordCurPage} total={orders.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
+            <Pagination page={ordCurPage} total={totalOrders} pageSize={PAGE_SIZE} onChange={search} />
             </>
           )}
         </div>
