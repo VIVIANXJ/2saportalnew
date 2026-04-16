@@ -716,11 +716,18 @@ function OrderSearch({ token }) {
   const syncFromEccang = async () => {
     setSyncing(true); setError('');
     try {
-      const res = await fetch('/api/orders/sync-eccang', {
+      let res = await fetch('/api/orders/sync-eccang', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ pageSize: 100, maxPages: 500 }),
       });
+      if (res.status === 405) {
+        // Fallback for platforms that accidentally treat sync route as GET-only.
+        res = await fetch('/api/orders/sync-eccang?pageSize=100&maxPages=500', {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      }
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Sync failed');
       await search(1);
