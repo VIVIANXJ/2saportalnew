@@ -14,6 +14,7 @@ const APP_TOKEN       = process.env.ECCANG_APP_TOKEN;
 const APP_KEY         = process.env.ECCANG_APP_KEY;
 const WAREHOUSE_CODE  = process.env.ECCANG_WAREHOUSE_CODE || 'AUSYD';
 const PAGE_SIZE       = 50;
+const MAX_FETCH_PAGES = parseInt(process.env.ECCANG_MAX_FETCH_PAGES || '300', 10);
 
 function buildSoap(service, paramsJson) {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -58,6 +59,47 @@ function normaliseOrder(order) {
     order.reference ||
     order.customer_ref_no ||
     '';
+  const statusValue =
+    order.order_status_name ||
+    order.order_status ||
+    order.status_name ||
+    order.status ||
+    order.orderStatus ||
+    '';
+  const carrierValue =
+    order.logistics_name ||
+    order.logistics_channel_name ||
+    order.shipping_method ||
+    order.logistics_company ||
+    order.carrier ||
+    '';
+  const trackingValue =
+    order.logistics_code ||
+    order.tracking_number ||
+    order.tracking_no ||
+    order.logistics_number ||
+    order.waybill_no ||
+    '';
+  const createdAtValue =
+    order.create_time ||
+    order.createTime ||
+    order.add_time ||
+    order.order_time ||
+    '';
+  const shippedAtValue =
+    order.delivery_time ||
+    order.shipped_time ||
+    order.out_time ||
+    '';
+  const shipToNameValue =
+    order.consignee_name ||
+    order.receiver_name ||
+    order.contact_name ||
+    '';
+  const country = order.country || order.country_name || '';
+  const province = order.province || order.state || '';
+  const city = order.city || order.town || '';
+  const address = order.address || order.address1 || order.street || '';
   const items = order.details
     ? (Array.isArray(order.details) ? order.details : [order.details])
     : [];
@@ -66,13 +108,13 @@ function normaliseOrder(order) {
     order_number:     order.order_code,
     reference_no:     referenceNo,
     warehouse:        order.warehouse_code      || WAREHOUSE_CODE,
-    status:           (order.order_status_name || order.order_status || '').toLowerCase(),
-    carrier:          order.logistics_name      || '',
-    tracking_number:  order.logistics_code      || '',
-    created_at:       order.create_time         || '',
-    shipped_at:       order.delivery_time       || '',
-    ship_to_name:     order.consignee_name      || '',
-    ship_to_address:  [order.country, order.province, order.city, order.address].filter(Boolean).join(', '),
+    status:           String(statusValue || '').toLowerCase(),
+    carrier:          carrierValue,
+    tracking_number:  trackingValue,
+    created_at:       createdAtValue,
+    shipped_at:       shippedAtValue,
+    ship_to_name:     shipToNameValue,
+    ship_to_address:  [country, province, city, address].filter(Boolean).join(', '),
     order_type:       'standard',
     client:           referenceNo?.startsWith('ASL') ? 'ASL' : referenceNo?.startsWith('CCEP') ? 'CCEP' : '2SA',
     order_items: items.map(i => ({
@@ -91,6 +133,8 @@ export default async function handler(req, res) {
 
   try {
     const { q, page = '1', pageSize = String(PAGE_SIZE), all } = req.query;
+    const safePageSize = String(Math.max(1, Math.min(200, parseInt(pageSize, 10) || PAGE_SIZE)));
+    const maxPages = Math.max(1, Math.min(1000, parseInt(req.query.maxPages || String(MAX_FETCH_PAGES), 10) || MAX_FETCH_PAGES));
 
     // 精确搜索：按订单号或参考号
     if (q?.trim()) {
@@ -120,10 +164,10 @@ export default async function handler(req, res) {
       const allOrders = [];
       let p = 1;
       let hasMore = true;
-      while (hasMore && p <= 20) {
+      while (hasMore && p <= maxPages) {
         const data = await callEccang('getOrderList', {
           page:           p,
-          pageSize:       String(PAGE_SIZE),
+          pageSize:       safePageSize,
           warehouse_code: WAREHOUSE_CODE,
         });
         if (data.ask !== 'Success') break;
@@ -132,13 +176,20 @@ export default async function handler(req, res) {
         hasMore = data.nextPage === 'true' || data.nextPage === true;
         p++;
       }
-      return res.status(200).json({ success: true, count: allOrders.length, pages_fetched: p - 1, data: allOrders });
+      return res.status(200).json({
+        success: true,
+        count: allOrders.length,
+        pages_fetched: p - 1,
+        page_size: parseInt(safePageSize, 10),
+        max_pages: maxPages,
+        data: allOrders,
+      });
     }
 
     // 单页查询（默认）
     const data = await callEccang('getOrderList', {
       page:           parseInt(page),
-      pageSize:       pageSize,
+      pageSize:       safePageSize,
       warehouse_code: WAREHOUSE_CODE,
     });
     if (data.ask !== 'Success') {
