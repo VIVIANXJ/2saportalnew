@@ -21,6 +21,24 @@ const C = {
   dangerBg: '#FEF2F2',
 };
 
+const WAREHOUSE_LABELS = {
+  C0000001174: 'JD-SYD1',
+  C0000001901: 'JD-MEL1',
+  ECCANG: '2SA warehouse',
+  AUSYD: '2SA warehouse',
+  JDL: 'JD warehouse',
+};
+
+function warehouseLabel(code) {
+  const key = String(code || '').toUpperCase();
+  return WAREHOUSE_LABELS[key] || code || '—';
+}
+
+function isEccangWarehouse(code) {
+  const key = String(code || '').toUpperCase();
+  return key === 'ECCANG' || key === 'AUSYD';
+}
+
 const STATUS_COLORS = {
   pending:    { bg: '#F8FAFC', text: '#64748B', dot: '#94A3B8', border: '#E2E8F0' },
   processing: { bg: '#EFF6FF', text: '#2563EB', dot: '#3B82F6', border: '#BFDBFE' },
@@ -342,7 +360,7 @@ export default function Portal() {
                   color: status === 'ok' ? C.success : C.danger,
                   border: `1px solid ${status === 'ok' ? '#A7F3D0' : '#FECACA'}`,
                 }}>
-                  {wh}: {status}
+                  {warehouseLabel(wh)}: {status}
                 </span>
               ))}
             </div>
@@ -354,7 +372,7 @@ export default function Portal() {
                 placeholder="Filter by SKU..."
                 style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 200 }}
               />
-              {[['all','All Warehouses'],['ECCANG','ECCANG only'],['C0000001174','JDL SYD'],['C0000001901','JDL MEL']].map(([v,l]) => (
+              {[['all','All Warehouses'],['ECCANG','2SA warehouse only'],['C0000001174','JD-SYD1'],['C0000001901','JD-MEL1']].map(([v,l]) => (
                 <button key={v} onClick={() => { setInvFilter(v); setInvPage(1); }} style={{
                   padding: '7px 14px', borderRadius: 8, border: `1px solid ${invFilter===v ? C.accent : C.border}`,
                   background: invFilter===v ? C.accentDim : C.surface, color: invFilter===v ? C.accentText : C.muted,
@@ -443,7 +461,7 @@ export default function Portal() {
                           <td style={{ padding: '12px 16px' }}>
                             <span style={{ fontSize: 12, fontWeight: 500, color: C.dimmed }}>{order.client}</span>
                           </td>
-                          <td style={{ padding: '12px 16px', color: C.dimmed, fontSize: 12 }}>{order.warehouse}</td>
+                          <td style={{ padding: '12px 16px', color: C.dimmed, fontSize: 12 }}>{warehouseLabel(order.warehouse)}</td>
                           <td style={{ padding: '12px 16px' }}><Badge status={order.status} /></td>
                           <td style={{ padding: '12px 16px', color: C.muted, fontSize: 12, fontFamily: 'monospace' }}>
                             {order.tracking_number || <span style={{ color: C.border, fontFamily: 'inherit' }}>—</span>}
@@ -550,7 +568,7 @@ export default function Portal() {
                   </thead>
                   <tbody>
                     {pagedRows.map((row, i) => {
-                      const isJDL = row.wh !== 'ECCANG';
+                      const isJDL = !isEccangWarehouse(row.wh);
                       const whColor = isJDL ? C.accent : '#7C3AED';
                       const prevRow = pagedRows[i-1];
                       const isFirst = !prevRow || prevRow.sku !== row.sku;
@@ -568,7 +586,7 @@ export default function Portal() {
                               background: isJDL ? C.accentDim : '#F5F3FF',
                               color: whColor,
                               border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}`,
-                            }}>{row.wh}</span>
+                            }}>{warehouseLabel(row.wh)}</span>
                           </td>
                           <td style={{ padding: '10px 16px', fontWeight: 600, color: row.s > 0 ? C.success : C.muted }}>{row.s}</td>
                           <td style={{ padding: '10px 16px', color: row.r > 0 ? C.warning : C.muted }}>{row.r}</td>
