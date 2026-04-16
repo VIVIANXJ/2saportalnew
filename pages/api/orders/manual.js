@@ -26,51 +26,47 @@ async function pushToShipStation(order) {
     return { pushed: false, reason: 'ShipStation credentials not configured' };
   }
 
+  // SS createorder payload — 不传 null 字段，SS 会报 "request is invalid"
+  const storeId = process.env.SHIPSTATION_STORE_ID ? Number(process.env.SHIPSTATION_STORE_ID) : null;
   const payload = {
-    orderNumber: order.order_number,
-    orderDate: new Date().toISOString(),
-    orderStatus: 'awaiting_shipment',
-    customerUsername: order.reference_no || order.ship_to_name || 'manual-customer',
-    customerEmail: order.customer_email || '',
+    orderNumber:     order.order_number,
+    orderDate:       new Date().toISOString(),
+    orderStatus:     'awaiting_shipment',
+    ...(order.reference_no && { orderKey: order.reference_no }),
+    ...(order.customer_email && { customerEmail: order.customer_email }),
+    ...(order.reference_no || order.ship_to_name
+      ? { customerUsername: order.reference_no || order.ship_to_name }
+      : {}),
     billTo: {
-      name: order.ship_to_name || '',
-      company: order.customer_company || '',
-      street1: order.ship_to_address?.address1 || '',
-      street2: order.ship_to_address?.address2 || '',
-      city: order.ship_to_address?.suburb || '',
-      state: order.ship_to_address?.state || '',
+      name:       order.ship_to_name          || '',
+      ...(order.customer_company && { company: order.customer_company }),
+      street1:    order.ship_to_address?.address1 || '',
+      ...(order.ship_to_address?.address2 && { street2: order.ship_to_address.address2 }),
+      city:       order.ship_to_address?.suburb   || '',
+      state:      order.ship_to_address?.state    || '',
       postalCode: order.ship_to_address?.postcode || '',
-      country: order.ship_to_address?.country || 'AU',
-      phone: order.customer_phone || '',
+      country:    order.ship_to_address?.country  || 'AU',
+      ...(order.customer_phone && { phone: order.customer_phone }),
     },
     shipTo: {
-      name: order.ship_to_name || '',
-      company: order.customer_company || '',
-      street1: order.ship_to_address?.address1 || '',
-      street2: order.ship_to_address?.address2 || '',
-      city: order.ship_to_address?.suburb || '',
-      state: order.ship_to_address?.state || '',
+      name:       order.ship_to_name          || '',
+      ...(order.customer_company && { company: order.customer_company }),
+      street1:    order.ship_to_address?.address1 || '',
+      ...(order.ship_to_address?.address2 && { street2: order.ship_to_address.address2 }),
+      city:       order.ship_to_address?.suburb   || '',
+      state:      order.ship_to_address?.state    || '',
       postalCode: order.ship_to_address?.postcode || '',
-      country: order.ship_to_address?.country || 'AU',
-      phone: order.customer_phone || '',
+      country:    order.ship_to_address?.country  || 'AU',
+      ...(order.customer_phone && { phone: order.customer_phone }),
     },
-    items: (order.items || []).map((it) => ({
-      sku: it.sku,
-      name: it.product_name || it.sku,
-      quantity: Number(it.quantity) || 1,
+    items: (order.items || []).map(it => ({
+      sku:       it.sku,
+      name:      it.product_name || it.sku || 'Item',
+      quantity:  Number(it.quantity) || 1,
       unitPrice: Number(it.price || 0),
     })),
-    tagIds: [],
-    carrierCode: null,
-    serviceCode: null,
-    packageCode: null,
     confirmation: 'none',
-    shipByDate: null,
-    warehouseId: null,
-    holdUntilDate: null,
-    advancedOptions: {
-      storeId: process.env.SHIPSTATION_STORE_ID ? Number(process.env.SHIPSTATION_STORE_ID) : undefined,
-    },
+    ...(storeId && { advancedOptions: { storeId } }),
   };
 
   const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
@@ -86,9 +82,14 @@ async function pushToShipStation(order) {
   let json = {};
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
   if (!res.ok) {
-    return { pushed: false, reason: json?.Message || json?.message || `ShipStation HTTP ${res.status}`, raw: json };
+    // 返回完整错误信息，包括 ModelState（字段验证错误）
+    const reason = json?.Message || json?.message || `ShipStation HTTP ${res.status}`;
+    const details = json?.ModelState
+      ? Object.entries(json.ModelState).map(([k,v]) => `${k}: ${v}`).join('; ')
+      : (json?.ExceptionMessage || json?.StackTrace || '');
+    return { pushed: false, reason: details ? `${reason} — ${details}` : reason, raw: json };
   }
-  return { pushed: true, data: json };
+  return { pushed: true, shipstationOrderId: json?.orderId, orderNumber: json?.orderNumber, data: json };
 }
 
 export default async function handler(req, res) {
