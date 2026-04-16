@@ -957,6 +957,21 @@ function ManualOrderManage({ token }) {
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
         </button>
+        <button onClick={async () => {
+          setSaveMsg('Syncing from ShipStation...');
+          try {
+            const r = await fetch('/api/shipstation/sync-tracking', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ syncAll: true }),
+            });
+            const j = await r.json();
+            setSaveMsg(`SS Sync: ${j.updated} updated out of ${j.synced} orders`);
+            load(page);
+          } catch(e) { setSaveMsg(`Sync error: ${e.message}`); }
+        }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          🔄 Sync from SS
+        </button>
       </div>
 
       {saveMsg && (
