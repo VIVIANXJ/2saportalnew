@@ -5,6 +5,7 @@
  */
 import { verifyToken } from '../auth/login';
 import xml2js from 'xml2js';
+import { createClient } from '@supabase/supabase-js';
 
 const ECCANG_BASE_URL = process.env.ECCANG_BASE_URL;
 const APP_TOKEN       = process.env.ECCANG_APP_TOKEN;
@@ -47,6 +48,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'items array required' });
   }
 
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
   const results = [];
   for (const item of items) {
     const { order_code, tracking_number, carrier } = item;
@@ -64,7 +70,17 @@ export default async function handler(req, res) {
         }),
       });
       const data = await parseSoap(await res2.text());
-      results.push({ order_code, success: data.ask === 'Success', message: data.message });
+      const success = data.ask === 'Success';
+      if (success) {
+        await supabase
+          .from('orders')
+          .update({
+            tracking_number,
+            carrier: carrier || null,
+          })
+          .eq('order_number', order_code);
+      }
+      results.push({ order_code, success, message: data.message });
     } catch (e) {
       results.push({ order_code, success: false, error: e.message });
     }
