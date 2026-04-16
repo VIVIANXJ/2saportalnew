@@ -557,7 +557,7 @@ function InventoryView({ token }) {
             <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No inventory found</div>
           ) : (
             <>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
               <thead>
                 <tr style={{ background: C.surfaceAlt }}>
                   {['SKU', 'Warehouse', 'Sellable', 'Reserved', 'On-way'].map(h => (
@@ -667,20 +667,20 @@ function JdlOrderSearch({ token }) {
               <tbody>
                 {orders.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                    <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{o.order_number || '—'}</td>
-                    <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.reference_no || '—'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{warehouseLabel(o.warehouse)}</td>
+                    <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600, fontFamily: 'monospace', fontSize: 12, width: '16%' }}>{o.order_number || '—'}</td>
+                    <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12, width: '14%' }}>{o.reference_no || '—'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '10%' }}>{warehouseLabel(o.warehouse)}</td>
                     <td style={{ padding: '10px 14px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: `${statusColor(o.status)}22`, color: statusColor(o.status) }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: `${statusColor(o.status)}22`, color: statusColor(o.status), display: 'inline-block', maxWidth: 120, whiteSpace: 'normal', lineHeight: 1.2 }}>
                         {o.status || '—'}
                       </span>
                     </td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{o.carrier || '—'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: 'monospace', color: C.muted }}>{o.tracking_number || '—'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '8%' }}>{o.carrier || '—'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, fontFamily: 'monospace', color: C.muted, width: '10%' }}>{o.tracking_number || '—'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '22%', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {o.order_items?.map(it => `${it.sku}×${it.qty_actual||it.quantity}`).join(', ') || '—'}
                     </td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted, width: '8%' }}>
                       {o.outbound_at ? String(o.outbound_at).slice(0,10) : '—'}
                     </td>
                   </tr>
