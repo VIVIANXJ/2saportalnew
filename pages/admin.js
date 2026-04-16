@@ -874,6 +874,192 @@ function OrderSearch({ token }) {
   );
 }
 
+
+// ── Manual Order Management ────────────────────────────────────
+function ManualOrderManage({ token }) {
+  const [orders,    setOrders]    = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [q,         setQ]         = useState('');
+  const [searched,  setSearched]  = useState(false);
+  const [editId,    setEditId]    = useState(null);
+  const [editData,  setEditData]  = useState({});
+  const [saving,    setSaving]    = useState(false);
+  const [saveMsg,   setSaveMsg]   = useState('');
+  const [page,      setPage]      = useState(1);
+  const [total,     setTotal]     = useState(0);
+  const PAGE_SIZE = 50;
+
+  const load = async (p = 1) => {
+    setLoading(true); setSearched(true);
+    try {
+      const params = new URLSearchParams({ page: p, pageSize: PAGE_SIZE });
+      if (q.trim()) params.set('q', q.trim());
+      const res  = await fetch(`/api/orders/manual?${params}`);
+      const json = await res.json();
+      setOrders(json.data || []);
+      setTotal(json.pagination?.total || 0);
+      setPage(p);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startEdit = (order) => {
+    setEditId(order.id);
+    setEditData({
+      reference_no:    order.reference_no    || '',
+      tracking_number: order.tracking_number || '',
+      carrier:         order.carrier         || '',
+      status:          order.status          || 'pending',
+      notes:           order.notes           || '',
+    });
+    setSaveMsg('');
+  };
+
+  const cancelEdit = () => { setEditId(null); setEditData({}); setSaveMsg(''); };
+
+  const save = async (id, pushSS = false) => {
+    setSaving(true); setSaveMsg('');
+    try {
+      const res  = await fetch(`/api/orders/manual?id=${id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ ...editData, push_to_shipstation: pushSS }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Save failed');
+      setSaveMsg(pushSS
+        ? `Saved. ShipStation: ${json.shipstation?.pushed ? '✅ pushed' : `❌ ${json.shipstation?.reason}`}`
+        : 'Saved ✅');
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, ...json.data } : o));
+      setEditId(null);
+    } catch (e) {
+      setSaveMsg(`Error: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text, width: '100%' };
+  const statusOpts = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Manual Orders</h2>
+
+      {/* Search bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
+          placeholder="Search order number or reference..."
+          style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+        <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          {loading ? '...' : 'Search'}
+        </button>
+      </div>
+
+      {saveMsg && (
+        <div style={{ background: saveMsg.includes('Error') ? C.dangerBg : C.successBg, border: `1px solid ${saveMsg.includes('Error') ? '#FECACA' : '#A7F3D0'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: saveMsg.includes('Error') ? C.danger : C.success, marginBottom: 16 }}>
+          {saveMsg}
+        </div>
+      )}
+
+      {searched && !loading && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+            {total} manual order{total !== 1 ? 's' : ''}
+          </div>
+
+          {orders.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No manual orders found</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: C.surfaceAlt }}>
+                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Carrier', 'Tracking', 'Created', 'Actions'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(order => (
+                  editId === order.id ? (
+                    // ── Edit row ──
+                    <tr key={order.id} style={{ background: '#F0F7FF', borderBottom: `2px solid ${C.accent}` }}>
+                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input value={editData.reference_no} onChange={e => setEditData(p => ({ ...p, reference_no: e.target.value }))} style={inputStyle} placeholder="Reference No." />
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <select value={editData.status} onChange={e => setEditData(p => ({ ...p, status: e.target.value }))} style={{ ...inputStyle }}>
+                          {statusOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ padding: '6px 8px', color: C.muted, fontSize: 12 }}>{order.ship_to_name}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input value={editData.carrier} onChange={e => setEditData(p => ({ ...p, carrier: e.target.value }))} style={inputStyle} placeholder="Carrier" />
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input value={editData.tracking_number} onChange={e => setEditData(p => ({ ...p, tracking_number: e.target.value }))} style={inputStyle} placeholder="Tracking No." />
+                      </td>
+                      <td style={{ padding: '6px 8px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <button onClick={() => save(order.id, false)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                            {saving ? '...' : 'Save'}
+                          </button>
+                          <button onClick={() => save(order.id, true)} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                            Save + Push SS
+                          </button>
+                          <button onClick={cancelEdit} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                            Cancel
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    // ── Read row ──
+                    <tr key={order.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
+                      <td style={{ padding: '10px 12px', color: C.muted, fontSize: 12 }}>{order.reference_no || <span style={{ color: C.border }}>—</span>}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: order.status === 'shipped' ? C.successBg : order.status === 'pending' ? C.warningBg : C.surfaceAlt, color: order.status === 'shipped' ? C.success : order.status === 'pending' ? C.warning : C.muted }}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.text }}>{order.ship_to_name}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.carrier || <span style={{ color: C.border }}>—</span>}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace', color: C.muted }}>{order.tracking_number || <span style={{ color: C.border }}>—</span>}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <button onClick={() => startEdit(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* Pagination */}
+          {total > PAGE_SIZE && (
+            <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${C.border}`, alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: C.muted }}>{((page-1)*PAGE_SIZE)+1}–{Math.min(page*PAGE_SIZE, total)} of {total}</span>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => load(page-1)} disabled={page===1} style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 12 }}>‹</button>
+                <button onClick={() => load(page+1)} disabled={page*PAGE_SIZE>=total} style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 12 }}>›</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManualOrderCreate({ token }) {
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
@@ -1022,6 +1208,7 @@ export default function AdminPage() {
 
   const nav = [
     { key: 'orders',     label: '📦 ECCANG Orders' },
+    { key: 'manual_orders', label: '📋 Manual Orders' },
     { key: 'manual_create', label: '📝 Create Manual Order' },
     { key: 'order_type', label: '⚙️ Order Type' },
     { key: 'jdl_orders', label: '🚢 JDL Orders' },
@@ -1063,6 +1250,7 @@ export default function AdminPage() {
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
           {section === 'orders'     && <OrderSearch    token={token} />}
+          {section === 'manual_orders' && <ManualOrderManage token={token} />}
           {section === 'manual_create' && <ManualOrderCreate token={token} />}
           {section === 'order_type' && <OrderTypeUpdate token={token} />}
           {section === 'jdl_orders' && <JdlOrderSearch token={token} />}
