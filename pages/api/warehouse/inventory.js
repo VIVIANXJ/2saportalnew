@@ -68,7 +68,10 @@ async function fetchEccang(skuList) {
 }
 
 // ── JDL ─────────────────────────────────────────────────────
-const JDL_WAREHOUSES = ['C0000001174', 'C0000001901'];
+const JDL_WAREHOUSES = (process.env.JDL_WAREHOUSES || 'C0000001174,C0000001901')
+  .split(',')
+  .map(v => v.trim())
+  .filter(Boolean);
 
 const JDL_STOCK_PATH       = '/fop/open/stockprovider/querystockwarehouselistbypage';
 const JDL_BATCH_STOCK_PATH = '/fop/open/stockprovider/querystockbatchwarehouselistbypage';
@@ -102,22 +105,56 @@ async function jdlCallApi(apiPath, bodyObj) {
 }
 
 async function fetchJdlWarehouse(skuList, warehouseCode) {
+  const parseMaybeJson = (value) => {
+    if (!value || typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+  const pickPageObj = (raw) => {
+    const lvl1 = parseMaybeJson(raw?.data);
+    const lvl2 = parseMaybeJson(lvl1?.data || lvl1?.result || lvl1?.pageResult || lvl1);
+    return parseMaybeJson(lvl2) || {};
+  };
+  const pickRecords = (raw) => {
+    const pageObj = pickPageObj(raw);
+    const arr = pageObj?.records
+      || pageObj?.list
+      || pageObj?.rows
+      || pageObj?.items
+      || pageObj?.resultList
+      || pageObj?.dataList
+      || [];
+    return Array.isArray(arr) ? arr : [];
+  };
+  const isJdlSuccess = (payload) => {
+    const code = String(payload?.code ?? '');
+    return payload?.success === true || payload?.failed === false || payload?.errorCode === 0 || code === '200' || code === '1000';
+  };
+
   const APP_KEY       = process.env.JDL_APP_KEY;
   const APP_SECRET    = process.env.JDL_APP_SECRET;
   const ACCESS_TOKEN  = process.env.JDL_ACCESS_TOKEN;
   const CUSTOMER_CODE = process.env.JDL_CUSTOMER_CODE || 'KH20000015945';
+  const OPERATOR_ACCT = process.env.JDL_OPERATOR_ACCT || '';
+  const SYSTEM_CODE = process.env.JDL_SYSTEM_CODE || '';
 
   if (!ACCESS_TOKEN || !APP_KEY || !APP_SECRET) return { error: 'JDL credentials not configured' };
 
   const baseBody = {
-    page: 1, pageSize: 50,
+    page: 1,
+    pageNo: 1,
+    pageNum: 1,
+    pageSize: 50,
     customerCode:    CUSTOMER_CODE,
     warehouseCode,
-    operatorAccount: process.env.JDL_OPERATOR_ACCT || 'jdhk_ncwnsMgKPxSE',
-    systemCode:      process.env.JDL_SYSTEM_CODE   || '2satest',
     systemType:      '10',
     cargoOwnerCode:  process.env.JDL_CARGO_OWNER_CODE || '',
   };
+  if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
+  if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
   if (skuList?.length) baseBody.customerGoodsIdList = skuList;
 
   // 同时调非批次 + 批次库存接口
@@ -142,8 +179,8 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
   console.log('[JDL inv.js] r2:', r2.status, r2.status==='fulfilled' ? JSON.stringify(r2.value).slice(0,300) : r2.reason?.message);
 
   let hasData = false;
-  if (r1.status === 'fulfilled' && (r1.value.code === 200 || r1.value.code === '200')) { addItems(r1.value.data?.records); hasData = true; }
-  if (r2.status === 'fulfilled' && (r2.value.code === 200 || r2.value.code === '200')) { addItems(r2.value.data?.records); hasData = true; }
+  if (r1.status === 'fulfilled' && isJdlSuccess(r1.value)) { addItems(pickRecords(r1.value)); hasData = true; }
+  if (r2.status === 'fulfilled' && isJdlSuccess(r2.value)) { addItems(pickRecords(r2.value)); hasData = true; }
 
   if (!hasData) {
     const msg = (r1.status === 'fulfilled' ? r1.value?.message : null)
