@@ -149,6 +149,9 @@ export default function Portal() {
   const [orderPage,   setOrderPage]   = useState(1);
   const [invPage,     setInvPage]     = useState(1);
   const [orderTotal,  setOrderTotal]  = useState(0);
+  const [orderSortBy, setOrderSortBy] = useState('created_at');
+  const [orderSortDir, setOrderSortDir] = useState('desc');
+  const [invSortBy, setInvSortBy] = useState('updated_desc');
   const PAGE_SIZE = 100;
 
   // 筛选状态
@@ -169,15 +172,17 @@ export default function Portal() {
     try {
       if (tab === 'orders') {
         const params = new URLSearchParams({
-          page: '1',
-          pageSize: '500',
+          all: '1',
+          allLimit: '20000',
+          sort_by: orderSortBy,
+          sort_dir: orderSortDir,
         });
         if (q) params.set('q', q.trim());
         if (type !== 'all') params.set('type', type);
 
         const [dbRes, jdlRes] = await Promise.all([
           fetch(`/api/orders?${params}`),
-          fetch(`/api/orders/jdl?${q?.trim() ? `q=${encodeURIComponent(q.trim())}` : 'all=1'}`),
+          fetch(`/api/orders/jdl?frontend=1&${q?.trim() ? `q=${encodeURIComponent(q.trim())}` : 'all=1'}`),
         ]);
 
         const dbJson = await dbRes.json();
@@ -217,7 +222,7 @@ export default function Portal() {
       if (tab === 'orders') setSearchedOrders(true);
       if (tab === 'inventory') setSearchedInventory(true);
     }
-  }, [tab]);
+  }, [tab, orderSortBy, orderSortDir]);
 
   const handleSearch = (e) => { e.preventDefault(); search(searchQ, orderType, 1); };
 
@@ -339,6 +344,7 @@ export default function Portal() {
             </div>
 
             {tab === 'orders' && (
+              <>
               <div style={{
                 display: 'flex', gap: 0,
                 border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden',
@@ -357,6 +363,18 @@ export default function Portal() {
                     }}>{label}</button>
                 ))}
               </div>
+              <select value={`${orderSortBy}:${orderSortDir}`} onChange={(e) => {
+                const [sb, sd] = e.target.value.split(':');
+                setOrderSortBy(sb); setOrderSortDir(sd);
+              }} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
+                <option value="created_at:desc">Time ↓</option>
+                <option value="created_at:asc">Time ↑</option>
+                <option value="order_number:asc">Order No. ↑</option>
+                <option value="order_number:desc">Order No. ↓</option>
+                <option value="reference_no:asc">Reference ↑</option>
+                <option value="reference_no:desc">Reference ↓</option>
+              </select>
+              </>
             )}
 
             <button type="submit" style={{
@@ -406,6 +424,11 @@ export default function Portal() {
                 <input type="checkbox" checked={hideZero} onChange={e => { setHideZero(e.target.checked); setInvPage(1); }} />
                 Hide zero stock
               </label>
+              <select value={invSortBy} onChange={e => { setInvSortBy(e.target.value); setInvPage(1); }} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
+                <option value="updated_desc">SKU Updated ↓</option>
+                <option value="updated_asc">SKU Updated ↑</option>
+                <option value="sku_asc">SKU ↑</option>
+              </select>
             </div>
           </div>
         )}
@@ -557,10 +580,17 @@ export default function Portal() {
                 r:       wh.reserved  || 0,
                 o:       wh.onway     || 0,
                 t:       (wh.sellable || 0) + (wh.reserved || 0),
+                updated_at: wh.updated_at || wh.update_time || item.updated_at || null,
               });
             });
           });
 
+          rows.sort((a, b) => {
+            if (invSortBy === 'sku_asc') return String(a.sku).localeCompare(String(b.sku));
+            const at = new Date(a.updated_at || 0).getTime();
+            const bt = new Date(b.updated_at || 0).getTime();
+            return invSortBy === 'updated_asc' ? at - bt : bt - at;
+          });
           const pagedRows = rows.slice((invPage-1)*PAGE_SIZE, invPage*PAGE_SIZE);
 
           return (
