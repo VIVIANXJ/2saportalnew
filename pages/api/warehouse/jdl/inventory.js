@@ -5,9 +5,12 @@ const APP_KEY         = process.env.JDL_APP_KEY;
 const APP_SECRET      = process.env.JDL_APP_SECRET;
 const ACCESS_TOKEN    = process.env.JDL_ACCESS_TOKEN;
 const CUSTOMER_CODE   = process.env.JDL_CUSTOMER_CODE   || 'KH20000015945';
-const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT   || 'jdhk_ncwnsMgKPxSE';
-const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE     || '2satest';
-const WAREHOUSES      = ['C0000001174', 'C0000001901'];
+const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT || '';
+const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '';
+const WAREHOUSES = (process.env.JDL_WAREHOUSES || 'C0000001174,C0000001901')
+  .split(',')
+  .map(v => v.trim())
+  .filter(Boolean);
 const STOCK_PATH       = '/fop/open/stockprovider/querystockwarehouselistbypage';
 const BATCH_STOCK_PATH = '/fop/open/stockprovider/querystockbatchwarehouselistbypage';
 
@@ -52,15 +55,22 @@ async function callApi(apiPath, bodyObj) {
 }
 
 async function queryWarehouse(warehouseCode, skuList) {
+  const isJdlSuccess = (payload) => {
+    const code = String(payload?.code ?? '');
+    return payload?.success === true || payload?.failed === false || payload?.errorCode === 0 || code === '200' || code === '1000';
+  };
   const baseBody = {
-    page: 1, pageSize: 50,
+    page: 1,
+    pageNo: 1,
+    pageNum: 1,
+    pageSize: 50,
     customerCode:    CUSTOMER_CODE,
     warehouseCode,
-    operatorAccount: OPERATOR_ACCT,
-    systemCode:      SYSTEM_CODE,
     systemType:      '10',
     cargoOwnerCode:  process.env.JDL_CARGO_OWNER_CODE || '',
   };
+  if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
+  if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
   if (skuList?.length) baseBody.customerGoodsIdList = skuList;
 
   // 同时调非批次 + 批次库存接口
@@ -112,11 +122,11 @@ async function queryWarehouse(warehouseCode, skuList) {
   console.log('[JDL] r2:', r2.status, r2.status==='fulfilled' ? JSON.stringify(r2.value).slice(0,200) : r2.reason?.message);
 
   let hasData = false;
-  if (r1.status === 'fulfilled' && (r1.value.code === 200 || r1.value.code === '200')) {
+  if (r1.status === 'fulfilled' && isJdlSuccess(r1.value)) {
     addItems(pickRecords(r1.value));
     hasData = true;
   }
-  if (r2.status === 'fulfilled' && (r2.value.code === 200 || r2.value.code === '200')) {
+  if (r2.status === 'fulfilled' && isJdlSuccess(r2.value)) {
     addItems(pickRecords(r2.value));
     hasData = true;
   }
