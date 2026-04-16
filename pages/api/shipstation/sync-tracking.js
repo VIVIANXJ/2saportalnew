@@ -16,23 +16,24 @@ function getSupabase() {
   );
 }
 
-async function fetchSSShipments(orderNumber) {
+async function fetchSSOrder(orderNumber) {
   const apiKey    = process.env.SHIPSTATION_API_KEY;
   const apiSecret = process.env.SHIPSTATION_API_SECRET;
   const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
 
-  // SS API: GET /shipments?orderNumber=xxx
-  const url = `https://ssapi.shipstation.com/shipments?orderNumber=${encodeURIComponent(orderNumber)}`;
-  console.log('[SS sync] fetching:', url);
+  // SS API: GET /orders?orderNumber=xxx — 从订单直接拿 tracking 信息
+  const url = `https://ssapi.shipstation.com/orders?orderNumber=${encodeURIComponent(orderNumber)}`;
+  console.log('[SS sync] fetching order:', url);
   const res = await fetch(url, {
     headers: { Authorization: authHeader, 'Content-Type': 'application/json' }
   });
   const text = await res.text();
-  console.log('[SS sync] response:', text.slice(0, 500));
+  console.log('[SS sync] order response:', text.slice(0, 600));
   if (!res.ok) throw new Error(`SS HTTP ${res.status}: ${text.slice(0, 200)}`);
   const data = JSON.parse(text);
-  console.log('[SS sync] shipments count:', data.shipments?.length, 'total:', data.total);
-  return data.shipments || [];
+  const orders = data.orders || [];
+  console.log('[SS sync] orders found:', orders.length);
+  return orders;
 }
 
 export default async function handler(req, res) {
@@ -69,24 +70,31 @@ export default async function handler(req, res) {
 
     for (const num of orderNumbers) {
       try {
-        const shipments = await fetchSSShipments(num);
-        // 找最新的未 void 的发货记录
-        const active = shipments.filter(s => !s.voided);
-        if (!active.length) {
-          results.push({ orderNumber: num, status: 'no_shipment' });
+        const ssOrders = await fetchSSOrder(num);
+        if (!ssOrders.length) {
+          results.push({ orderNumber: num, status: 'not_found_in_ss' });
           continue;
         }
-        // 按 shipDate 排序取最新
-        active.sort((a, b) => new Date(b.shipDate) - new Date(a.shipDate));
-        const latest = active[0];
+        const ssOrder = ssOrders[0];
+        console.log('[SS sync] order status:', ssOrder.orderStatus, 'tracking:', ssOrder.trackingNumber, 'carrier:', ssOrder.carrierCode);
+
+        // 只有已发货或包含 tracking 时才更新
+        const trackingNumber = ssOrder.trackingNumber || '';
+        const carrierCode    = ssOrder.carrierCode    || '';
+        const isShipped      = ssOrder.orderStatus === 'shipped' || trackingNumber;
+
+        if (!isShipped) {
+          results.push({ orderNumber: num, status: 'not_shipped_yet', ssStatus: ssOrder.orderStatus });
+          continue;
+        }
 
         const { error } = await supabase
           .from('orders')
           .update({
-            tracking_number: latest.trackingNumber   || '',
-            carrier:         latest.carrierCode      || '',
+            tracking_number: trackingNumber,
+            carrier:         carrierCode,
             status:          'shipped',
-            shipped_at:      latest.shipDate         || new Date().toISOString(),
+            shipped_at:      ssOrder.shipDate || new Date().toISOString(),
           })
           .eq('order_number', num);
 
