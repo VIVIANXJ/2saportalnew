@@ -17,11 +17,15 @@ async function fetchEccang(skuList) {
     return { error: 'ECCANG credentials not configured' };
   }
 
-  const paramsJson = { page: 1, pageSize: '50', warehouse_code: WAREHOUSE_CODE };
-  if (skuList?.length === 1) paramsJson.product_sku = skuList[0];
-  if (skuList?.length > 1)  paramsJson.product_sku_arr = skuList;
+  const maxPages = Math.max(1, Math.min(1000, parseInt(process.env.ECCANG_INV_MAX_PAGES || '200', 10) || 200));
+  const pageSize = Math.max(20, Math.min(200, parseInt(process.env.ECCANG_INV_PAGE_SIZE || '100', 10) || 100));
 
-  const soap = `<?xml version="1.0" encoding="UTF-8"?>
+  const callEccangPage = async (page) => {
+    const paramsJson = { page, pageSize: String(pageSize), warehouse_code: WAREHOUSE_CODE };
+    if (skuList?.length === 1) paramsJson.product_sku = skuList[0];
+    if (skuList?.length > 1)  paramsJson.product_sku_arr = skuList;
+
+    const soap = `<?xml version="1.0" encoding="UTF-8"?>
 <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://www.example.org/Ec/">
   <SOAP-ENV:Body>
     <ns1:callService>
@@ -32,8 +36,6 @@ async function fetchEccang(skuList) {
     </ns1:callService>
   </SOAP-ENV:Body>
 </SOAP-ENV:Envelope>`;
-
-  try {
     const res = await fetch(BASE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/xml; charset=UTF-8', 'SOAPAction': '' },
@@ -47,12 +49,27 @@ async function fetchEccang(skuList) {
     const response = body['ns1:callServiceResponse']?.response || body['callServiceResponse']?.response;
     const data = JSON.parse(response);
 
-    if (data.ask !== 'Success') return { error: data.message || 'ECCANG error' };
+    return data;
+  };
 
-    const items = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+  try {
+    let p = 1;
+    let hasMore = true;
+    const allItems = [];
+
+    while (hasMore && p <= maxPages) {
+      const data = await callEccangPage(p);
+      if (data.ask !== 'Success') return { error: data.message || 'ECCANG error' };
+      const items = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+      allItems.push(...items);
+      hasMore = data.nextPage === true || data.nextPage === 'true';
+      p++;
+      if (skuList?.length) break; // SKU query does not need deep pagination
+    }
+
     return {
       success: true,
-      data: items.map(item => ({
+      data: allItems.map(item => ({
         sku:        item.product_sku,
         warehouse:  'ECCANG',
         sellable:   parseInt(item.sellable)   || 0,
@@ -60,7 +77,7 @@ async function fetchEccang(skuList) {
         onway:      parseInt(item.onway)       || 0,
         unsellable: parseInt(item.unsellable)  || 0,
         hold:       parseInt(item.hold)        || 0,
-      }))
+      })),
     };
   } catch (e) {
     return { error: e.message };
@@ -156,11 +173,32 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
   if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
   if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
   if (skuList?.length) baseBody.customerGoodsIdList = skuList;
+  const maxPages = Math.max(1, Math.min(1000, parseInt(process.env.JDL_INV_MAX_PAGES || '200', 10) || 200));
 
-  // 同时调非批次 + 批次库存接口
+  const collectEndpointRecords = async (apiPath) => {
+    let page = 1;
+    let hasMore = true;
+    const records = [];
+    while (hasMore && page <= maxPages) {
+      const payload = await jdlCallApi(apiPath, { ...baseBody, page, pageNo: page, pageNum: page });
+      if (!isJdlSuccess(payload)) {
+        throw new Error(payload?.message || `JDL error code ${payload?.code}`);
+      }
+      const pageObj = pickPageObj(payload);
+      const rows = pickRecords(payload);
+      records.push(...rows);
+      const totalPages = parseInt(pageObj?.pages || pageObj?.totalPage || 1, 10) || 1;
+      hasMore = page < totalPages && rows.length > 0;
+      page++;
+      if (skuList?.length) break; // SKU query does not need deep pagination
+    }
+    return records;
+  };
+
+  // 同时调非批次 + 批次库存接口（并各自循环分页）
   const [r1, r2] = await Promise.allSettled([
-    jdlCallApi(JDL_STOCK_PATH,       { ...baseBody }),
-    jdlCallApi(JDL_BATCH_STOCK_PATH, { ...baseBody }),
+    collectEndpointRecords(JDL_STOCK_PATH),
+    collectEndpointRecords(JDL_BATCH_STOCK_PATH),
   ]);
 
   const skuMap = {};
@@ -179,8 +217,8 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
   console.log('[JDL inv.js] r2:', r2.status, r2.status==='fulfilled' ? JSON.stringify(r2.value).slice(0,300) : r2.reason?.message);
 
   let hasData = false;
-  if (r1.status === 'fulfilled' && isJdlSuccess(r1.value)) { addItems(pickRecords(r1.value)); hasData = true; }
-  if (r2.status === 'fulfilled' && isJdlSuccess(r2.value)) { addItems(pickRecords(r2.value)); hasData = true; }
+  if (r1.status === 'fulfilled') { addItems(r1.value); hasData = true; }
+  if (r2.status === 'fulfilled') { addItems(r2.value); hasData = true; }
 
   if (!hasData) {
     const msg = (r1.status === 'fulfilled' ? r1.value?.message : null)
