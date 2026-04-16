@@ -45,7 +45,7 @@ async function pushToShipStation(order) {
       city:       order.ship_to_address?.suburb   || '',
       state:      order.ship_to_address?.state    || '',
       postalCode: order.ship_to_address?.postcode || '',
-      country:    order.ship_to_address?.country  || 'AU',
+      country:    'AU', // SS 要求2位国家代码
       ...(order.customer_phone && { phone: order.customer_phone }),
     },
     shipTo: {
@@ -56,7 +56,7 @@ async function pushToShipStation(order) {
       city:       order.ship_to_address?.suburb   || '',
       state:      order.ship_to_address?.state    || '',
       postalCode: order.ship_to_address?.postcode || '',
-      country:    order.ship_to_address?.country  || 'AU',
+      country:    'AU', // SS 要求2位国家代码
       ...(order.customer_phone && { phone: order.customer_phone }),
     },
     items: (order.items || []).map(it => ({
