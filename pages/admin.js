@@ -9,6 +9,24 @@ const C = {
   warning: '#D97706', warningBg: '#FFFBEB',
 };
 
+const WAREHOUSE_LABELS = {
+  C0000001174: 'JD-SYD1',
+  C0000001901: 'JD-MEL1',
+  ECCANG: '2SA warehouse',
+  AUSYD: '2SA warehouse',
+  JDL: 'JD warehouse',
+};
+
+function warehouseLabel(code) {
+  const key = String(code || '').toUpperCase();
+  return WAREHOUSE_LABELS[key] || code || '—';
+}
+
+function isEccangWarehouse(code) {
+  const key = String(code || '').toUpperCase();
+  return key === 'ECCANG' || key === 'AUSYD';
+}
+
 
 const C_PAGE = { border: '#E2E8F0', accent: '#2563EB', muted: '#475569', bg: '#fff' };
 function Pagination({ page: currentPage, total, pageSize, onChange }) {
@@ -551,14 +569,14 @@ function InventoryView({ token }) {
                 {items.slice((invCurPage-1)*PAGE_SIZE, invCurPage*PAGE_SIZE).flatMap((item, i) => {
                   const whEntries = Object.entries(item.warehouses);
                   return whEntries.map(([wh, data], j) => {
-                    const isJDL = wh !== 'ECCANG';
+                    const isJDL = !isEccangWarehouse(wh);
                     return (
                       <tr key={`${i}-${j}`} style={{ borderBottom: `1px solid ${C.border}` }}>
                         <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, opacity: j === 0 ? 1 : 0.3 }}>
                           {j === 0 ? item.sku : ''}
                         </td>
                         <td style={{ padding: '8px 14px' }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: isJDL ? C.accentDim : '#F5F3FF', color: isJDL ? C.accent : '#7C3AED', border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}` }}>{wh}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: isJDL ? C.accentDim : '#F5F3FF', color: isJDL ? C.accent : '#7C3AED', border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}` }}>{warehouseLabel(wh)}</span>
                         </td>
                         <td style={{ padding: '8px 14px', fontWeight: 700, color: data.sellable > 0 ? C.success : C.muted }}>{data.sellable || 0}</td>
                         <td style={{ padding: '8px 14px', color: data.reserved > 0 ? C.warning : C.muted }}>{data.reserved || 0}</td>
@@ -651,7 +669,7 @@ function JdlOrderSearch({ token }) {
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600, fontFamily: 'monospace', fontSize: 12 }}>{o.order_number || '—'}</td>
                     <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.reference_no || '—'}</td>
-                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{o.warehouse || '—'}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 12, color: C.muted }}>{warehouseLabel(o.warehouse)}</td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: `${statusColor(o.status)}22`, color: statusColor(o.status) }}>
                         {o.status || '—'}
