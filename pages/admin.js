@@ -691,7 +691,7 @@ function OrderSearch({ token }) {
   const search = async () => {
     setLoading(true); setError(''); setSearched(true); setOrdCurPage(1);
     try {
-      const params = new URLSearchParams(q ? { pageSize: '50' } : { all: '1' });
+      const params = new URLSearchParams(q ? { pageSize: '100' } : { all: '1', pageSize: '100', maxPages: '500' });
       if (q) params.set('q', q);
       const res  = await fetch(`/api/orders/eccang?${params}`, {
         headers: { 'Authorization': `Bearer ${token}` },
