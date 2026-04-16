@@ -168,16 +168,38 @@ export default function Portal() {
     try {
       if (tab === 'orders') {
         const params = new URLSearchParams({
-          page: String(targetOrderPage),
-          pageSize: String(PAGE_SIZE),
+          page: '1',
+          pageSize: '500',
         });
         if (q) params.set('q', q.trim());
         if (type !== 'all') params.set('type', type);
-        const res  = await fetch(`/api/orders?${params}`);
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error);
-        setOrders(json.data || []);
-        setOrderTotal(json.pagination?.total || 0);
+
+        const [dbRes, jdlRes] = await Promise.all([
+          fetch(`/api/orders?${params}`),
+          fetch(`/api/orders/jdl?${q?.trim() ? `q=${encodeURIComponent(q.trim())}` : 'all=1'}`),
+        ]);
+
+        const dbJson = await dbRes.json();
+        const jdlJson = await jdlRes.json();
+        if (!dbJson.success) throw new Error(dbJson.error);
+
+        const jdlOrders = (jdlJson.success ? (jdlJson.data || []) : []).map((o) => ({
+          id: `jdl-${o.order_number || o.id}`,
+          order_number: o.order_number,
+          reference_no: o.reference_no,
+          order_type: 'standard',
+          client: String(o.reference_no || '').startsWith('CCEP') ? 'CCEP' : 'ASL',
+          warehouse: o.warehouse || 'JDL',
+          status: o.status || 'processing',
+          tracking_number: o.tracking_number || '',
+          created_at: o.created_at || '',
+          ship_to_name: o.ship_to_name || '',
+          order_items: o.order_items || [],
+        }));
+
+        const combined = [...(dbJson.data || []), ...jdlOrders];
+        setOrders(combined);
+        setOrderTotal(combined.length);
       } else {
         const params = new URLSearchParams();
         if (q) params.set('sku', q);
@@ -408,6 +430,7 @@ export default function Portal() {
                 (o.reference_no || '').toLowerCase().includes(q)
               )
             : orders;
+          const pagedOrders = filteredOrders.slice((orderPage-1)*PAGE_SIZE, orderPage*PAGE_SIZE);
           return (
           <div style={{ animation: 'fadeIn 0.2s ease' }}>
             {orders.length === 0 ? (
@@ -444,7 +467,7 @@ export default function Portal() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.map(order => (
+                    {pagedOrders.map(order => (
                       <>
                         <tr
                           key={order.id}
@@ -503,7 +526,7 @@ export default function Portal() {
                     ))}
                   </tbody>
                 </table>
-                <Pagination page={orderPage} total={orderTotal} pageSize={PAGE_SIZE} onChange={(p) => search(searchQ, orderType, p)} />
+                <Pagination page={orderPage} total={filteredOrders.length} pageSize={PAGE_SIZE} onChange={setOrderPage} />
               </div>
             )}
           </div>
