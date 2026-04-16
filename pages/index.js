@@ -151,6 +151,7 @@ export default function Portal() {
   const [orderTotal,  setOrderTotal]  = useState(0);
   const [orderSortBy, setOrderSortBy] = useState('created_at');
   const [orderSortDir, setOrderSortDir] = useState('desc');
+  const [orderWarehouseFilter, setOrderWarehouseFilter] = useState('all');
   const [invSortBy, setInvSortBy] = useState('updated_desc');
   const PAGE_SIZE = 100;
 
@@ -233,6 +234,15 @@ export default function Portal() {
   };
 
   const currentTabSearched = tab === 'orders' ? searchedOrders : searchedInventory;
+
+  const orderWarehouseKey = (order) => {
+    const w = String(order?.warehouse || '').toUpperCase();
+    if (w === 'ECCANG' || w === 'AUSYD') return 'eccang';
+    if (w === 'C0000001174') return 'jdl_syd';
+    if (w === 'C0000001901') return 'jdl_mel';
+    if (w === 'JDL') return 'jdl';
+    return 'other';
+  };
 
   return (
     <>
@@ -374,6 +384,13 @@ export default function Portal() {
                 <option value="reference_no:asc">Reference ↑</option>
                 <option value="reference_no:desc">Reference ↓</option>
               </select>
+              <select value={orderWarehouseFilter} onChange={(e) => setOrderWarehouseFilter(e.target.value)} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
+                <option value="all">All warehouses</option>
+                <option value="eccang">2SA warehouse</option>
+                <option value="jdl_syd">JD-SYD1</option>
+                <option value="jdl_mel">JD-MEL1</option>
+                <option value="jdl">JDL (all)</option>
+              </select>
               </>
             )}
 
@@ -454,7 +471,16 @@ export default function Portal() {
                 (o.reference_no || '').toLowerCase().includes(q)
               )
             : orders;
-          const pagedOrders = filteredOrders.slice((orderPage-1)*PAGE_SIZE, orderPage*PAGE_SIZE);
+          const warehouseFilteredOrders = orderWarehouseFilter === 'all'
+            ? filteredOrders
+            : filteredOrders.filter((o) => {
+                const key = orderWarehouseKey(o);
+                if (orderWarehouseFilter === 'jdl') {
+                  return key === 'jdl' || key === 'jdl_syd' || key === 'jdl_mel';
+                }
+                return key === orderWarehouseFilter;
+              });
+          const pagedOrders = warehouseFilteredOrders.slice((orderPage-1)*PAGE_SIZE, orderPage*PAGE_SIZE);
           return (
           <div style={{ animation: 'fadeIn 0.2s ease' }}>
             {orders.length === 0 ? (
@@ -469,7 +495,7 @@ export default function Portal() {
               <div style={{ background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                 <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>
-                    {orderTotal} result{orderTotal !== 1 ? 's' : ''}
+                    {warehouseFilteredOrders.length} result{warehouseFilteredOrders.length !== 1 ? 's' : ''}
                   </span>
                   <input
                     value={orderSearch}
@@ -550,7 +576,7 @@ export default function Portal() {
                     ))}
                   </tbody>
                 </table>
-                <Pagination page={orderPage} total={filteredOrders.length} pageSize={PAGE_SIZE} onChange={setOrderPage} />
+                <Pagination page={orderPage} total={warehouseFilteredOrders.length} pageSize={PAGE_SIZE} onChange={setOrderPage} />
               </div>
             )}
           </div>
