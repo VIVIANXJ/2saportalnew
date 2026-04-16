@@ -22,12 +22,16 @@ async function fetchSSShipments(orderNumber) {
   const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
 
   // SS API: GET /shipments?orderNumber=xxx
-  const res = await fetch(
-    `https://ssapi.shipstation.com/shipments?orderNumber=${encodeURIComponent(orderNumber)}`,
-    { headers: { Authorization: authHeader, 'Content-Type': 'application/json' } }
-  );
-  if (!res.ok) throw new Error(`SS HTTP ${res.status}`);
-  const data = await res.json();
+  const url = `https://ssapi.shipstation.com/shipments?orderNumber=${encodeURIComponent(orderNumber)}`;
+  console.log('[SS sync] fetching:', url);
+  const res = await fetch(url, {
+    headers: { Authorization: authHeader, 'Content-Type': 'application/json' }
+  });
+  const text = await res.text();
+  console.log('[SS sync] response:', text.slice(0, 500));
+  if (!res.ok) throw new Error(`SS HTTP ${res.status}: ${text.slice(0, 200)}`);
+  const data = JSON.parse(text);
+  console.log('[SS sync] shipments count:', data.shipments?.length, 'total:', data.total);
   return data.shipments || [];
 }
 
