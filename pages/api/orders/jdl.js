@@ -85,6 +85,32 @@ function normalise(order) {
   };
 }
 
+function parseMaybeJson(value) {
+  if (!value || typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function pickPageObj(raw) {
+  const lvl1 = parseMaybeJson(raw?.data);
+  const lvl2 = parseMaybeJson(lvl1?.data || lvl1?.result || lvl1?.pageResult || lvl1);
+  return parseMaybeJson(lvl2) || {};
+}
+
+function pickRecords(pageObj) {
+  const direct = pageObj?.records
+    || pageObj?.list
+    || pageObj?.rows
+    || pageObj?.items
+    || pageObj?.resultList
+    || pageObj?.dataList
+    || [];
+  return Array.isArray(direct) ? direct : [];
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   if (!ACCESS_TOKEN || !APP_KEY || !APP_SECRET) {
@@ -118,11 +144,11 @@ export default async function handler(req, res) {
           if (allOrders.length > 0) break;
           return res.status(400).json({ error: data.message || `JDL code ${data.code}`, raw: data });
         }
-        const page_obj = data.data || {};
-        const records  = page_obj.records || page_obj.list || [];
+        const page_obj = pickPageObj(data);
+        const records  = pickRecords(page_obj);
         allOrders.push(...records.map(normalise));
-        const total     = page_obj.total    || 0;
-        const totalPage = page_obj.totalPage || Math.ceil(total / PAGE_SIZE);
+        const total     = parseInt(page_obj.total || page_obj.totalCount || records.length || 0, 10) || 0;
+        const totalPage = parseInt(page_obj.totalPage || page_obj.pages || Math.ceil(total / PAGE_SIZE) || 1, 10) || 1;
         hasMore = p < totalPage;
         p++;
       }
@@ -141,13 +167,13 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: data.message || `JDL code ${data.code}`, raw: data });
     }
 
-    const page_obj = data.data || {};
-    const records  = page_obj.records || page_obj.list || [];
+    const page_obj = pickPageObj(data);
+    const records  = pickRecords(page_obj);
     return res.status(200).json({
       success:  true, source: 'JDL',
-      count:    page_obj.total    || records.length,
+      count:    parseInt(page_obj.total || page_obj.totalCount || records.length || 0, 10) || records.length,
       page:     parseInt(page),
-      totalPage: page_obj.totalPage || 1,
+      totalPage: parseInt(page_obj.totalPage || page_obj.pages || 1, 10) || 1,
       data:     records.map(normalise),
     });
 
