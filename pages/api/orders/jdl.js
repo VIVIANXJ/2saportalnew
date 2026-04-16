@@ -13,8 +13,8 @@ const APP_KEY         = process.env.JDL_APP_KEY;
 const APP_SECRET      = process.env.JDL_APP_SECRET;
 const ACCESS_TOKEN    = process.env.JDL_ACCESS_TOKEN;
 const CUSTOMER_CODE   = process.env.JDL_CUSTOMER_CODE   || 'KH20000015945';
-const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT   || 'g70capital';
-const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE     || '2satest';
+const OPERATOR_ACCT   = process.env.JDL_OPERATOR_ACCT || '';
+const SYSTEM_CODE     = process.env.JDL_SYSTEM_CODE || '';
 const OUTSTOCK_PATH   = '/fop/open/outstockprovider/queryoutstocklist';
 const PAGE_SIZE       = 50;
 
@@ -111,6 +111,11 @@ function pickRecords(pageObj) {
   return Array.isArray(direct) ? direct : [];
 }
 
+function isJdlSuccess(payload) {
+  const code = String(payload?.code ?? '');
+  return payload?.success === true || payload?.failed === false || payload?.errorCode === 0 || code === '200' || code === '1000';
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   if (!ACCESS_TOKEN || !APP_KEY || !APP_SECRET) {
@@ -122,11 +127,13 @@ export default async function handler(req, res) {
 
     const baseBody = {
       pageNo:          1,
+      pageNum:         1,
+      page:            1,
       pageSize:        PAGE_SIZE,
       customerCode:    CUSTOMER_CODE,
-      operatorAccount: OPERATOR_ACCT,
-      systemCode:      SYSTEM_CODE,
     };
+    if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
+    if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
 
     // 按订单号搜索
     if (q?.trim()) {
@@ -140,7 +147,7 @@ export default async function handler(req, res) {
       let hasMore = true;
       while (hasMore && p <= 20) {
         const data = await callJdl({ ...baseBody, pageNo: p });
-        if (data.code !== 200 && data.code !== '200') {
+        if (!isJdlSuccess(data)) {
           if (allOrders.length > 0) break;
           return res.status(400).json({ error: data.message || `JDL code ${data.code}`, raw: data });
         }
@@ -163,7 +170,7 @@ export default async function handler(req, res) {
     const data = await callJdl({ ...baseBody, pageNo: parseInt(page) });
     console.log('[JDL orders] response:', JSON.stringify(data).slice(0, 400));
 
-    if (data.code !== 200 && data.code !== '200') {
+    if (!isJdlSuccess(data)) {
       return res.status(400).json({ error: data.message || `JDL code ${data.code}`, raw: data });
     }
 
