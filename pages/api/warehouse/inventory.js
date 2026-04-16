@@ -156,7 +156,7 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
   const ACCESS_TOKEN  = process.env.JDL_ACCESS_TOKEN;
   const CUSTOMER_CODE = process.env.JDL_CUSTOMER_CODE || 'KH20000015945';
   const OPERATOR_ACCT = process.env.JDL_OPERATOR_ACCT || '';
-  const SYSTEM_CODE = process.env.JDL_SYSTEM_CODE || '';
+  const SYSTEM_CODE = process.env.JDL_SYSTEM_CODE || '2satest';
 
   if (!ACCESS_TOKEN || !APP_KEY || !APP_SECRET) return { error: 'JDL credentials not configured' };
 
@@ -168,10 +168,10 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
     customerCode:    CUSTOMER_CODE,
     warehouseCode,
     systemType:      '10',
-    cargoOwnerCode:  process.env.JDL_CARGO_OWNER_CODE || '',
   };
   if (OPERATOR_ACCT) baseBody.operatorAccount = OPERATOR_ACCT;
-  if (SYSTEM_CODE) baseBody.systemCode = SYSTEM_CODE;
+  baseBody.systemCode = SYSTEM_CODE;
+  if (process.env.JDL_CARGO_OWNER_CODE) baseBody.cargoOwnerCode = process.env.JDL_CARGO_OWNER_CODE;
   if (skuList?.length) baseBody.customerGoodsIdList = skuList;
   const maxPages = Math.max(1, Math.min(1000, parseInt(process.env.JDL_INV_MAX_PAGES || '200', 10) || 200));
 
@@ -195,7 +195,8 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
     return records;
   };
 
-  // 同时调非批次 + 批次库存接口（并各自循环分页）
+  // 同时请求两个接口，但避免重复累计：
+  // 优先非批次库存；只有非批次为空时才使用批次库存。
   const [r1, r2] = await Promise.allSettled([
     collectEndpointRecords(JDL_STOCK_PATH),
     collectEndpointRecords(JDL_BATCH_STOCK_PATH),
@@ -217,8 +218,13 @@ async function fetchJdlWarehouse(skuList, warehouseCode) {
   console.log('[JDL inv.js] r2:', r2.status, r2.status==='fulfilled' ? JSON.stringify(r2.value).slice(0,300) : r2.reason?.message);
 
   let hasData = false;
-  if (r1.status === 'fulfilled') { addItems(r1.value); hasData = true; }
-  if (r2.status === 'fulfilled') { addItems(r2.value); hasData = true; }
+  const records1 = r1.status === 'fulfilled' ? (r1.value || []) : [];
+  const records2 = r2.status === 'fulfilled' ? (r2.value || []) : [];
+  const chosenRecords = records1.length > 0 ? records1 : records2;
+  if (chosenRecords.length > 0) {
+    addItems(chosenRecords);
+    hasData = true;
+  }
 
   if (!hasData) {
     const msg = (r1.status === 'fulfilled' ? r1.value?.message : null)
