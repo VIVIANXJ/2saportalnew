@@ -141,7 +141,8 @@ export default function Portal() {
   const [orders, setOrders]       = useState([]);
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading]     = useState(false);
-  const [searched, setSearched]   = useState(false);
+  const [searchedOrders, setSearchedOrders] = useState(false);
+  const [searchedInventory, setSearchedInventory] = useState(false);
   const [error, setError]         = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [warehouseStatus, setWarehouseStatus] = useState({});
@@ -213,20 +214,20 @@ export default function Portal() {
       setError(e.message);
     } finally {
       setLoading(false);
-      setSearched(true);
+      if (tab === 'orders') setSearchedOrders(true);
+      if (tab === 'inventory') setSearchedInventory(true);
     }
   }, [tab]);
 
   const handleSearch = (e) => { e.preventDefault(); search(searchQ, orderType, 1); };
 
   const handleTabSwitch = (t) => {
-    setTab(t); setOrders([]); setInventory([]);
-    setSearched(false); setError(null); setSearchQ('');
-    setOrderPage(1); setInvPage(1);
-    setOrderTotal(0);
-    setInvFilter('all'); setHideZero(false); setInvSearch(''); setOrderSearch('');
+    setTab(t);
+    setError(null);
     setTimeout(() => inputRef.current?.focus(), 50);
   };
+
+  const currentTabSearched = tab === 'orders' ? searchedOrders : searchedInventory;
 
   return (
     <>
@@ -372,7 +373,7 @@ export default function Portal() {
         </div>
 
         {/* Warehouse status pills */}
-        {tab === 'inventory' && searched && (
+        {tab === 'inventory' && searchedInventory && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               {Object.entries(warehouseStatus).map(([wh, status]) => (
@@ -422,7 +423,7 @@ export default function Portal() {
         )}
 
         {/* Orders table */}
-        {tab === 'orders' && searched && !loading && (() => {
+        {tab === 'orders' && searchedOrders && !loading && (() => {
           const q = orderSearch.trim().toLowerCase();
           const filteredOrders = q
             ? orders.filter(o =>
@@ -533,7 +534,7 @@ export default function Portal() {
           );
         })()}
         {/* Inventory table */}
-        {tab === 'inventory' && searched && !loading && (() => {
+        {tab === 'inventory' && searchedInventory && !loading && (() => {
           // 过滤逻辑
           const qSku = invSearch.trim().toLowerCase();
           const filteredInv = inventory.filter(item =>
@@ -633,7 +634,7 @@ export default function Portal() {
         })()}
 
         {/* Empty state */}
-        {!searched && !loading && (
+        {!currentTabSearched && !loading && (
           <div style={{
             textAlign: 'center', padding: '80px 0',
             background: C.surface, borderRadius: 12,
