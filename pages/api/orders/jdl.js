@@ -118,6 +118,9 @@ function isJdlSuccess(payload) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.query.frontend === '1' && String(process.env.SHOW_JDL_ON_FRONTEND || 'true').toLowerCase() === 'false') {
+    return res.status(200).json({ success: true, source: 'JDL', hidden: true, count: 0, data: [] });
+  }
   if (!ACCESS_TOKEN || !APP_KEY || !APP_SECRET) {
     return res.status(500).json({ error: 'JDL credentials not configured' });
   }
