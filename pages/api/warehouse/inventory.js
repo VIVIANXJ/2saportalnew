@@ -285,6 +285,7 @@ export default async function handler(req, res) {
       skuMap[item.sku].warehouses[key] = {
         sellable: item.sellable, reserved: item.reserved,
         onway: item.onway, unsellable: item.unsellable, hold: item.hold,
+        updated_at: item.updated_at || item.update_time || null,
       };
     }
   }
@@ -297,6 +298,7 @@ export default async function handler(req, res) {
       skuMap[item.sku].warehouses['ECCANG'] = {
         sellable: item.sellable, reserved: item.reserved,
         onway: item.onway, unsellable: item.unsellable, hold: item.hold,
+        updated_at: item.updated_at || item.update_time || null,
       };
     }
   }
