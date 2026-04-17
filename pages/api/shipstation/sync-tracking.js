@@ -51,12 +51,12 @@ export default async function handler(req, res) {
     let orderNumbers = [];
 
     if (syncAll) {
-      // 拉所有未发货的 manual orders
+      // 只拉没有 tracking number 的 manual orders（有 tracking 的跳过）
       const { data: orders } = await supabase
         .from('orders')
         .select('order_number')
         .ilike('order_number', 'MAN-%')
-        .not('status', 'eq', 'shipped');
+        .or('tracking_number.is.null,tracking_number.eq.');
       orderNumbers = (orders || []).map(o => o.order_number);
     } else if (orderNumber) {
       orderNumbers = [orderNumber];
