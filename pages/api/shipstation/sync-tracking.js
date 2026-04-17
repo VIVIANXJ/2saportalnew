@@ -16,42 +16,20 @@ function getSupabase() {
   );
 }
 
-async function fetchSSOrder(orderNumber) {
+async function fetchSSFulfillments(orderNumber) {
   const apiKey    = process.env.SHIPSTATION_API_KEY;
   const apiSecret = process.env.SHIPSTATION_API_SECRET;
   const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
 
-  // SS API: GET /orders?orderNumber=xxx — 从订单直接拿 tracking 信息
-  const url = `https://ssapi.shipstation.com/orders?orderNumber=${encodeURIComponent(orderNumber)}`;
-  console.log('[SS sync] fetching order:', url);
+  // SS API: GET /fulfillments?orderNumber=xxx — Mark as Shipped 的数据在这里
+  const url = `https://ssapi.shipstation.com/fulfillments?orderNumber=${encodeURIComponent(orderNumber)}`;
   const res = await fetch(url, {
     headers: { Authorization: authHeader, 'Content-Type': 'application/json' }
   });
   const text = await res.text();
-  console.log('[SS sync] order response:', text.slice(0, 600));
   if (!res.ok) throw new Error(`SS HTTP ${res.status}: ${text.slice(0, 200)}`);
   const data = JSON.parse(text);
-  const orders = data.orders || [];
-  console.log('[SS sync] orders found:', orders.length);
-  if (orders.length > 0) {
-    // 打印完整订单数据，找 tracking 字段位置
-    const o = orders[0];
-    console.log('[SS sync] full order keys:', Object.keys(o).join(', '));
-    console.log('[SS sync] tracking fields:', JSON.stringify({
-      trackingNumber: o.trackingNumber,
-      carrierCode: o.carrierCode,
-      serviceCode: o.serviceCode,
-      shipDate: o.shipDate,
-      holdUntilDate: o.holdUntilDate,
-      labelMessages: o.labelMessages,
-      shipments: o.shipments,
-      fulfillments: o.fulfillments,
-      // advancedOptions tracking fields
-      externallyFulfilled: o.advancedOptions?.externallyFulfilled,
-      externallyFulfilledBy: o.advancedOptions?.externallyFulfilledBy,
-    }));
-  }
-  return orders;
+  return data.fulfillments || [];
 }
 
 export default async function handler(req, res) {
@@ -88,23 +66,25 @@ export default async function handler(req, res) {
 
     for (const num of orderNumbers) {
       try {
-        const ssOrders = await fetchSSOrder(num);
-        if (!ssOrders.length) {
-          results.push({ orderNumber: num, status: 'not_found_in_ss' });
+        const fulfillments = await fetchSSFulfillments(num);
+        if (!fulfillments.length) {
+          results.push({ orderNumber: num, status: 'no_fulfillment' });
           continue;
         }
-        const ssOrder = ssOrders[0];
-        console.log('[SS sync] order status:', ssOrder.orderStatus, 'tracking:', ssOrder.trackingNumber, 'carrier:', ssOrder.carrierCode);
 
-        // 只有已发货或包含 tracking 时才更新
-        const trackingNumber = ssOrder.trackingNumber || '';
-        const carrierCode    = ssOrder.carrierCode    || '';
-        const isShipped      = ssOrder.orderStatus === 'shipped' || trackingNumber;
+        // 找最新的未 void 的 fulfillment
+        const active = fulfillments
+          .filter(f => !f.voided)
+          .sort((a, b) => new Date(b.createDate) - new Date(a.createDate));
 
-        if (!isShipped) {
-          results.push({ orderNumber: num, status: 'not_shipped_yet', ssStatus: ssOrder.orderStatus });
+        if (!active.length) {
+          results.push({ orderNumber: num, status: 'all_voided' });
           continue;
         }
+
+        const latest = active[0];
+        const trackingNumber = latest.trackingNumber || '';
+        const carrierCode    = latest.carrierCode    || '';
 
         const { error } = await supabase
           .from('orders')
@@ -112,7 +92,7 @@ export default async function handler(req, res) {
             tracking_number: trackingNumber,
             carrier:         carrierCode,
             status:          'shipped',
-            shipped_at:      ssOrder.shipDate || new Date().toISOString(),
+            shipped_at:      latest.shipDate || new Date().toISOString(),
           })
           .eq('order_number', num);
 
