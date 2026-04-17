@@ -1555,17 +1555,254 @@ function ManualOrderCreate({ token }) {
   );
 }
 
+
+// ── User Management ────────────────────────────────────────────
+const ALL_PERMISSIONS = [
+  { key: 'manual_orders',  label: 'View Manual Orders' },
+  { key: 'manual_create',  label: 'Create Manual Order' },
+  { key: 'manual_bulk',    label: 'Bulk Upload Orders' },
+  { key: 'eccang_orders',  label: 'ECCANG Orders' },
+  { key: 'jdl_orders',     label: 'JDL Orders' },
+  { key: 'order_type',     label: 'Order Type Settings' },
+  { key: 'inventory',      label: 'View Inventory' },
+  { key: 'tracking',       label: 'Update Tracking' },
+  { key: 'sync_eccang',    label: 'Sync ECCANG Orders' },
+  { key: 'user_management', label: 'User Management' },
+];
+
+function UserManagement({ token, user: currentUser }) {
+  const [users,    setUsers]    = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [msg,      setMsg]      = useState('');
+  const [editId,   setEditId]   = useState(null);
+  const [editPerms, setEditPerms] = useState([]);
+  const [editActive, setEditActive] = useState(true);
+  const [editNotes, setEditNotes] = useState('');
+  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '' });
+  const [showNew,  setShowNew]  = useState(false);
+  const [saving,   setSaving]   = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res  = await fetch('/api/auth/users', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setUsers(json.data || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const startEdit = (u) => {
+    setEditId(u.id);
+    setEditPerms(u.permissions || []);
+    setEditActive(u.active !== false);
+    setEditNotes(u.notes || '');
+    setMsg('');
+  };
+
+  const saveEdit = async (id) => {
+    setSaving(true);
+    try {
+      const res  = await fetch(`/api/auth/users?id=${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Saved');
+      setEditId(null);
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const createUser = async () => {
+    if (!newUser.username || !newUser.password) { setMsg('❌ Username and password required'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch('/api/auth/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(newUser),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ User created');
+      setShowNew(false);
+      setNewUser({ username: '', password: '', permissions: [], notes: '' });
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const deactivate = async (id, username) => {
+    if (!confirm(`Deactivate user "${username}"?`)) return;
+    await fetch(`/api/auth/users?id=${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    });
+    setMsg('✅ User deactivated');
+    load();
+  };
+
+  const togglePerm = (perm, list, setList) => {
+    setList(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]);
+  };
+
+  const PermGrid = ({ perms, setPerms, disabled }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginTop: 8 }}>
+      {ALL_PERMISSIONS.map(({ key, label }) => (
+        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, cursor: disabled ? 'default' : 'pointer' }}>
+          <input type="checkbox"
+            checked={perms.includes(key)}
+            disabled={disabled}
+            onChange={() => !disabled && togglePerm(key, perms, setPerms)}
+          />
+          {label}
+        </label>
+      ))}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>User Management</h2>
+        <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          + New User
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* Create new user form */}
+      {showNew && (
+        <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 16 }}>Create New User</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <input value={newUser.username} onChange={e => setNewUser(p => ({ ...p, username: e.target.value }))}
+              placeholder="Username *" style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))}
+              placeholder="Password *" style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+            <input value={newUser.notes} onChange={e => setNewUser(p => ({ ...p, notes: e.target.value }))}
+              placeholder="Notes (e.g. ASL client)" style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 4 }}>Permissions:</div>
+          <PermGrid perms={newUser.permissions} setPerms={(fn) => setNewUser(p => ({ ...p, permissions: typeof fn === 'function' ? fn(p.permissions) : fn }))} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button onClick={createUser} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {saving ? 'Creating...' : 'Create User'}
+            </button>
+            <button onClick={() => { setShowNew(false); setMsg(''); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Super admin row */}
+      <div style={{ background: '#FEF9EC', border: `1px solid #FDE68A`, borderRadius: 10, padding: '14px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <span style={{ fontWeight: 700, color: C.text, fontSize: 14 }}>{currentUser?.username || '2sa-admin'}</span>
+          <span style={{ marginLeft: 8, fontSize: 11, background: '#FDE68A', color: '#92400E', padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>Super Admin</span>
+        </div>
+        <span style={{ fontSize: 12, color: C.muted }}>All permissions · Configured via environment variables</span>
+      </div>
+
+      {/* Sub-admin users */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>Loading...</div>
+      ) : users.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: C.muted, fontSize: 14 }}>No sub-admin users yet. Create one above.</div>
+      ) : (
+        users.map(u => (
+          <div key={u.id} style={{ background: C.surface, border: `1px solid ${editId === u.id ? C.accent : C.border}`, borderRadius: 10, padding: 16, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: editId === u.id ? 12 : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: u.active !== false ? C.text : C.muted }}>{u.username}</span>
+                {u.active === false && <span style={{ fontSize: 11, background: C.dangerBg, color: C.danger, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>Inactive</span>}
+                {u.notes && <span style={{ fontSize: 12, color: C.muted }}>— {u.notes}</span>}
+                {editId !== u.id && (
+                  <span style={{ fontSize: 11, color: C.muted }}>
+                    {(u.permissions || []).length} permissions
+                  </span>
+                )}
+              </div>
+              {editId !== u.id ? (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => startEdit(u)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                    Edit
+                  </button>
+                  {u.active !== false && (
+                    <button onClick={() => deactivate(u.id, u.username)} style={{ background: C.dangerBg, color: C.danger, border: `1px solid #FECACA`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      Deactivate
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => saveEdit(u.id)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                    {saving ? '...' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditId(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+            {editId === u.id && (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: C.text }}>
+                    <input type="checkbox" checked={editActive} onChange={e => setEditActive(e.target.checked)} />
+                    Active
+                  </label>
+                  <input value={editNotes} onChange={e => setEditNotes(e.target.value)}
+                    placeholder="Notes" style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 4 }}>Permissions:</div>
+                <PermGrid perms={editPerms} setPerms={setEditPerms} />
+              </div>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ── Main Admin Page ────────────────────────────────────────────
 export default function AdminPage() {
   const [token,   setToken]   = useState(null);
   const [user,    setUser]    = useState(null);
-  const [section, setSection] = useState('orders');
+  const [section, setSection] = useState('manual_orders');
 
   useEffect(() => {
     const t = localStorage.getItem('2sa_token');
     const u = localStorage.getItem('2sa_user');
-    if (t && u) { setToken(t); setUser(JSON.parse(u)); }
+    if (t && u) {
+      setToken(t);
+      const parsed = JSON.parse(u);
+      setUser(parsed);
+      // Default section: first permitted section
+      const perms = parsed.permissions || [];
+      const isSuperAdmin = parsed.role === 'super_admin';
+      if (isSuperAdmin || perms.includes('manual_orders')) setSection('manual_orders');
+      else if (perms.includes('eccang_orders')) setSection('orders');
+      else if (perms.includes('inventory')) setSection('inventory');
+    }
   }, []);
+
+  const can = (perm) => {
+    if (!user) return false;
+    if (user.role === 'super_admin') return true;
+    return (user.permissions || []).includes(perm);
+  };
 
   if (!token) return <LoginScreen onLogin={(t, u) => { setToken(t); setUser(u); }} />;
 
@@ -1580,30 +1817,40 @@ export default function AdminPage() {
       group: 'Manual Orders',
       icon: '📝',
       items: [
-        { key: 'manual_orders',  label: 'View Orders' },
-        { key: 'manual_create',  label: 'Create Order' },
-        { key: 'manual_bulk',    label: 'Bulk Upload' },
+        { key: 'manual_orders', label: 'View Orders',   perm: 'manual_orders' },
+        { key: 'manual_create', label: 'Create Order',  perm: 'manual_create' },
+        { key: 'manual_bulk',   label: 'Bulk Upload',   perm: 'manual_bulk' },
       ],
     },
     {
       group: 'Standard Orders',
       icon: '📦',
       items: [
-        { key: 'orders',      label: 'ECCANG Orders' },
-        { key: 'jdl_orders',  label: 'JDL Orders' },
-        { key: 'order_type',  label: 'Order Type' },
-        { key: 'upload',      label: 'Sync ECCANG' },
-        { key: 'tracking',    label: 'Update Tracking' },
+        { key: 'orders',     label: 'ECCANG Orders',    perm: 'eccang_orders' },
+        { key: 'jdl_orders', label: 'JDL Orders',       perm: 'jdl_orders' },
+        { key: 'order_type', label: 'Order Type',       perm: 'order_type' },
+        { key: 'upload',     label: 'Sync ECCANG',      perm: 'sync_eccang' },
+        { key: 'tracking',   label: 'Update Tracking',  perm: 'tracking' },
       ],
     },
     {
       group: 'Inventory',
       icon: '📊',
       items: [
-        { key: 'inventory', label: 'View Inventory' },
+        { key: 'inventory', label: 'View Inventory', perm: 'inventory' },
       ],
     },
-  ];
+    ...(can('user_management') ? [{
+      group: 'Settings',
+      icon: '⚙️',
+      items: [
+        { key: 'users', label: 'User Management', perm: 'user_management' },
+      ],
+    }] : []),
+  ].map(group => ({
+    ...group,
+    items: group.items.filter(item => !item.perm || can(item.perm)),
+  })).filter(group => group.items.length > 0);
 
   return (
     <>
@@ -1635,7 +1882,7 @@ export default function AdminPage() {
                 <span>{icon}</span>{group}
               </div>
               {/* Sub-items */}
-              {items.map(({ key, label }) => (
+              {items.map(({ key, label, perm }) => (
                 <button key={key} onClick={() => setSection(key)} style={{
                   display: 'block', width: '100%', textAlign: 'left',
                   padding: '7px 10px 7px 22px', borderRadius: 7, border: 'none', cursor: 'pointer',
@@ -1654,15 +1901,16 @@ export default function AdminPage() {
 
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
-          {section === 'orders'     && <OrderSearch    token={token} />}
-          {section === 'manual_orders' && <ManualOrderManage token={token} />}
-          {section === 'manual_create' && <ManualOrderCreate token={token} />}
-          {section === 'manual_bulk'   && <ManualOrderBulkUpload token={token} />}
-          {section === 'order_type' && <OrderTypeUpdate token={token} />}
-          {section === 'jdl_orders' && <JdlOrderSearch token={token} />}
-          {section === 'inventory'  && <InventoryView  token={token} />}
-          {section === 'upload'     && <OrderUpload    token={token} />}
-          {section === 'tracking'   && <TrackingUpdate token={token} />}
+          {section === 'orders'        && can('eccang_orders')   && <OrderSearch          token={token} />}
+          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} />}
+          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} />}
+          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} />}
+          {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
+          {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
+          {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
+          {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
+          {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
+          {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
       </div>
     </>
