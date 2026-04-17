@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 
 // Global SKU name cache — loaded once, shared across all components
@@ -13,6 +13,20 @@ async function loadSkuNames() {
     skuNamesLoaded = true;
   } catch {}
   return skuNamesGlobal;
+}
+
+// Global products cache
+let productsGlobal = [];
+let productsLoaded = false;
+async function loadProducts() {
+  if (productsLoaded) return productsGlobal;
+  try {
+    const res = await fetch('/api/products');
+    const json = await res.json();
+    if (json.success) productsGlobal = json.data || [];
+    productsLoaded = true;
+  } catch {}
+  return productsGlobal;
 }
 
 const C = {
@@ -1522,6 +1536,92 @@ function ManualOrderBulkUpload({ token }) {
   );
 }
 
+
+// ── SKU Dropdown — searchable product selector ─────────────────
+function SkuDropdown({ sku, productName, onChange }) {
+  const [query,    setQuery]    = useState(sku || '');
+  const [options,  setOptions]  = useState([]);
+  const [open,     setOpen]     = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [allProds, setAllProds] = useState(null);
+  const inputRef = React.useRef(null);
+
+  // 제품 목록 로드 (전역 캐시 사용)
+  useEffect(() => {
+    loadProducts().then(prods => setAllProds(prods));
+  }, []);
+
+  // 검색어 변경 시 필터링
+  useEffect(() => {
+    if (!allProds) return;
+    if (!query.trim()) {
+      setOptions(allProds.slice(0, 50));
+      return;
+    }
+    const q = query.toLowerCase();
+    const filtered = allProds.filter(p =>
+      p.sku.toLowerCase().includes(q) ||
+      (p.product_name || '').toLowerCase().includes(q)
+    ).slice(0, 50);
+    setOptions(filtered);
+  }, [query, allProds]);
+
+  // sku prop이 변경되면 query도 업데이트
+  useEffect(() => { setQuery(sku || ''); }, [sku]);
+
+  const select = (p) => {
+    onChange(p.sku, p.product_name);
+    setQuery(p.sku);
+    setOpen(false);
+  };
+
+  const handleBlur = () => {
+    // 약간 딜레이 — 클릭 이벤트가 먼저 실행되도록
+    setTimeout(() => setOpen(false), 150);
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={e => {
+          setQuery(e.target.value);
+          onChange(e.target.value, productName);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={handleBlur}
+        placeholder="SKU — type to search *"
+        style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, width: '100%' }}
+      />
+      {open && options.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12)', maxHeight: 220, overflowY: 'auto',
+          marginTop: 2,
+        }}>
+          {options.map(p => (
+            <div key={p.sku}
+              onMouseDown={() => select(p)}
+              style={{
+                padding: '8px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.border}`,
+                display: 'flex', gap: 10, alignItems: 'center',
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = C.accentDim}
+              onMouseLeave={e => e.currentTarget.style.background = ''}
+            >
+              <span style={{ fontFamily: 'monospace', fontSize: 12, color: C.accent, fontWeight: 600, minWidth: 120 }}>{p.sku}</span>
+              <span style={{ fontSize: 12, color: C.muted }}>{p.product_name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ManualOrderCreate({ token }) {
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
@@ -1639,9 +1739,15 @@ function ManualOrderCreate({ token }) {
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Order Line Items *</div>
         {form.items.map((it, idx) => (
-          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.6fr 0.7fr 0.4fr', gap: 8, marginBottom: 8 }}>
-            <input value={it.sku} onChange={e => setItem(idx, 'sku', e.target.value)} placeholder="SKU *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
-            <input value={it.product_name} onChange={e => setItem(idx, 'product_name', e.target.value)} placeholder="Name" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.6fr 0.7fr 0.4fr', gap: 8, marginBottom: 8 }}>
+            <SkuDropdown
+              sku={it.sku}
+              productName={it.product_name}
+              onChange={(sku, name) => {
+                setItem(idx, 'sku', sku);
+                setItem(idx, 'product_name', name);
+              }}
+            />
             <input value={it.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} placeholder="Qty *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
             <input value={it.price} onChange={e => setItem(idx, 'price', e.target.value)} placeholder="Price" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
             <button onClick={() => removeItem(idx)} disabled={form.items.length === 1} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer' }}>-</button>
@@ -1660,6 +1766,209 @@ function ManualOrderCreate({ token }) {
   );
 }
 
+
+
+// ── Product Management ─────────────────────────────────────────
+function ProductManagement({ token }) {
+  const [products,  setProducts]  = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [q,         setQ]         = useState('');
+  const [msg,       setMsg]       = useState('');
+  const [editId,    setEditId]    = useState(null);
+  const [editData,  setEditData]  = useState({});
+  const [showNew,   setShowNew]   = useState(false);
+  const [newProd,   setNewProd]   = useState({ sku: '', product_name: '', description: '' });
+  const [saving,    setSaving]    = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set('q', q.trim());
+      if (showInactive) params.set('all', '1');
+      const res  = await fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setProducts(json.data || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [showInactive]);
+
+  const create = async () => {
+    if (!newProd.sku.trim() || !newProd.product_name.trim()) { setMsg('❌ SKU and name required'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(newProd),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Product created');
+      setShowNew(false);
+      setNewProd({ sku: '', product_name: '', description: '' });
+      productsLoaded = false; // invalidate cache
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const save = async (id) => {
+    setSaving(true);
+    try {
+      const res  = await fetch(`/api/products?id=${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(editData),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Saved');
+      setEditId(null);
+      productsLoaded = false;
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const deactivate = async (id, sku) => {
+    if (!confirm(`Deactivate product "${sku}"?`)) return;
+    await fetch(`/api/products?id=${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    });
+    setMsg(`✅ "${sku}" deactivated`);
+    productsLoaded = false;
+    load();
+  };
+
+  const iStyle = { padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Product Management</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+            Show inactive
+          </label>
+          <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            + Add Product
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* Search */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()}
+          placeholder="Search SKU or name..."
+          style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+        <button onClick={load} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
+      </div>
+
+      {/* New product form */}
+      {showNew && (
+        <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 12 }}>New Product</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr', gap: 10, marginBottom: 12 }}>
+            <input value={newProd.sku} onChange={e => setNewProd(p => ({ ...p, sku: e.target.value }))}
+              placeholder="SKU *" style={iStyle} />
+            <input value={newProd.product_name} onChange={e => setNewProd(p => ({ ...p, product_name: e.target.value }))}
+              placeholder="Product Name *" style={iStyle} />
+            <input value={newProd.description} onChange={e => setNewProd(p => ({ ...p, description: e.target.value }))}
+              placeholder="Description" style={iStyle} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={create} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {saving ? 'Saving...' : 'Create'}
+            </button>
+            <button onClick={() => { setShowNew(false); setMsg(''); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Products table */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '8px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+          {products.length} products
+        </div>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
+        ) : products.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No products found</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: C.surfaceAlt }}>
+                {['SKU', 'Name', 'Description', 'Status', ''].map(h => (
+                  <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {products.map(p => (
+                editId === p.id ? (
+                  <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, background: '#F0F7FF' }}>
+                    <td style={{ padding: '6px 10px' }}>
+                      <input value={editData.sku} onChange={e => setEditData(d => ({ ...d, sku: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
+                    </td>
+                    <td style={{ padding: '6px 10px' }}>
+                      <input value={editData.product_name} onChange={e => setEditData(d => ({ ...d, product_name: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
+                    </td>
+                    <td style={{ padding: '6px 10px' }}>
+                      <input value={editData.description || ''} onChange={e => setEditData(d => ({ ...d, description: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
+                    </td>
+                    <td style={{ padding: '6px 10px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={editData.active !== false} onChange={e => setEditData(d => ({ ...d, active: e.target.checked }))} />
+                        Active
+                      </label>
+                    </td>
+                    <td style={{ padding: '6px 10px' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => save(p.id)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setEditId(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: p.active === false ? 0.5 : 1 }}>
+                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{p.sku}</td>
+                    <td style={{ padding: '9px 14px', color: C.text, fontSize: 13 }}>{p.product_name}</td>
+                    <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.description || '—'}</td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: p.active !== false ? C.successBg : C.surfaceAlt, color: p.active !== false ? C.success : C.muted }}>
+                        {p.active !== false ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '9px 14px' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button onClick={() => { setEditId(p.id); setEditData({ sku: p.sku, product_name: p.product_name, description: p.description || '', active: p.active !== false }); setMsg(''); }}
+                          style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
+                        {p.active !== false && (
+                          <button onClick={() => deactivate(p.id, p.sku)}
+                            style={{ background: C.dangerBg, color: C.danger, border: `1px solid #FECACA`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Remove</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── User Management ────────────────────────────────────────────
 const ALL_PERMISSIONS = [
@@ -1949,7 +2258,8 @@ export default function AdminPage() {
       group: 'Settings',
       icon: '⚙️',
       items: [
-        { key: 'users', label: 'User Management', perm: 'user_management' },
+        { key: 'products', label: 'Products',        perm: 'user_management' },
+        { key: 'users',    label: 'User Management', perm: 'user_management' },
       ],
     }] : []),
   ].map(group => ({
@@ -2015,6 +2325,7 @@ export default function AdminPage() {
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
           {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
+          {section === 'products'       && can('user_management') && <ProductManagement    token={token} />}
           {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
       </div>
