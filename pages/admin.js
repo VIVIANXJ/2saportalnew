@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 
+// Global SKU name cache — loaded once, shared across all components
+let skuNamesGlobal = {};
+let skuNamesLoaded = false;
+async function loadSkuNames() {
+  if (skuNamesLoaded) return skuNamesGlobal;
+  try {
+    const res = await fetch('/api/warehouse/sku-names');
+    const json = await res.json();
+    if (json.success) skuNamesGlobal = json.data || {};
+    skuNamesLoaded = true;
+  } catch {}
+  return skuNamesGlobal;
+}
+
 const C = {
   bg: '#F8F9FA', surface: '#FFFFFF', surfaceAlt: '#F1F5F9',
   border: '#E2E8F0', accent: '#2563EB', accentDim: '#DBEAFE',
@@ -521,7 +535,13 @@ function InventoryView({ token }) {
   const [hideZero,   setHideZero]   = useState(false);
   const [invSearch,  setInvSearch]  = useState('');
   const [invSortBy,  setInvSortBy]  = useState('sku_asc');
+  const [skuNames,   setSkuNames]   = useState({});
   const PAGE_SIZE = 100;
+
+  // Load SKU names (uses global cache)
+  useEffect(() => {
+    loadSkuNames().then(names => setSkuNames(names));
+  }, []);
 
   const search = async () => {
     setLoading(true); setError(''); setInvCurPage(1);
@@ -605,8 +625,10 @@ function InventoryView({ token }) {
         // Apply filters
         const qSku = invSearch.trim().toLowerCase();
         const filteredItems = items.filter(item => {
-          if (qSku && !(item.sku || '').toLowerCase().includes(qSku)) return false;
-          return true;
+          if (!qSku) return true;
+          const skuMatch  = (item.sku || '').toLowerCase().includes(qSku);
+          const nameMatch = (skuNames[item.sku] || '').toLowerCase().includes(qSku);
+          return skuMatch || nameMatch;
         });
 
         // Build flat rows with warehouse filter + hide zero
@@ -642,7 +664,7 @@ function InventoryView({ token }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: C.surfaceAlt }}>
-                    {['SKU', 'Warehouse', 'Sellable', 'Reserved', 'On-way', 'Total'].map(h => (
+                    {['SKU', 'Name', 'Warehouse', 'Sellable', 'Reserved', 'On-way', 'Total'].map(h => (
                       <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>
@@ -656,6 +678,9 @@ function InventoryView({ token }) {
                       <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, borderTop: isFirst && i > 0 ? `2px solid ${C.border}` : 'none' }}>
                         <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12, opacity: isFirst ? 1 : 0.3 }}>
                           {isFirst ? row.sku : ''}
+                        </td>
+                        <td style={{ padding: '8px 14px', fontSize: 12, color: C.muted, opacity: isFirst ? 1 : 0 }}>
+                          {isFirst ? (skuNames[row.sku] || '') : ''}
                         </td>
                         <td style={{ padding: '8px 14px' }}>
                           <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: isJDL ? C.accentDim : '#F5F3FF', color: isJDL ? C.accent : '#7C3AED', border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}` }}>
@@ -684,13 +709,14 @@ function InventoryView({ token }) {
 
 // ── JDL Order Search ───────────────────────────────────────────
 function JdlOrderSearch({ token }) {
-  const [q,         setQ]         = useState('');
-  const [orders,    setOrders]    = useState([]);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState('');
-  const [searched,  setSearched]  = useState(false);
-  const [ordCurPage, setOrdCurPage] = useState(1);
+  const [q,           setQ]           = useState('');
+  const [orders,      setOrders]      = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState('');
+  const [searched,    setSearched]    = useState(false);
+  const [ordCurPage,  setOrdCurPage]  = useState(1);
   const [expandedItems, setExpandedItems] = useState({});
+  const [localFilter, setLocalFilter] = useState('');
   const PAGE_SIZE = 100;
 
   const search = async () => {
@@ -735,8 +761,11 @@ function JdlOrderSearch({ token }) {
       )}
       {searched && !loading && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-            {orders.length} orders
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: C.muted }}>{orders.length} orders</span>
+            <input value={localFilter} onChange={e => { setLocalFilter(e.target.value); setOrdCurPage(1); }}
+              placeholder="Filter by recipient / SKU name..."
+              style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.bg, color: C.text, width: 240 }} />
           </div>
           {orders.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No JDL orders found</div>
@@ -751,7 +780,19 @@ function JdlOrderSearch({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {orders.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
+                {(() => {
+                  const lf = localFilter.trim().toLowerCase();
+                  const filtered = lf ? orders.filter(o => {
+                    if ((o.ship_to_name  || '').toLowerCase().includes(lf)) return true;
+                    if ((o.order_number  || '').toLowerCase().includes(lf)) return true;
+                    if ((o.reference_no  || '').toLowerCase().includes(lf)) return true;
+                    if ((o.order_items || []).some(it =>
+                      (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
+                      (it.sku || '').toLowerCase().includes(lf)
+                    )) return true;
+                    return false;
+                  }) : orders;
+                  return filtered.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600, fontFamily: 'monospace', fontSize: 12, width: '16%' }}>{o.order_number || '—'}</td>
                     <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12, width: '14%' }}>{o.reference_no || '—'}</td>
@@ -798,7 +839,19 @@ function JdlOrderSearch({ token }) {
                 ))}
               </tbody>
             </table>
-            <Pagination page={ordCurPage} total={orders.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
+            <Pagination page={ordCurPage} total={(() => {
+              const lf = localFilter.trim().toLowerCase();
+              if (!lf) return orders.length;
+              return orders.filter(o =>
+                (o.ship_to_name || '').toLowerCase().includes(lf) ||
+                (o.order_number || '').toLowerCase().includes(lf) ||
+                (o.reference_no || '').toLowerCase().includes(lf) ||
+                (o.order_items || []).some(it =>
+                  (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
+                  (it.sku || '').toLowerCase().includes(lf)
+                )
+              ).length;
+            })()} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
             </>
           )}
         </div>
@@ -809,16 +862,17 @@ function JdlOrderSearch({ token }) {
 
 // ── Order Search ───────────────────────────────────────────────
 function OrderSearch({ token }) {
-  const [q,       setQ]       = useState('');
-  const [orders,  setOrders]  = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [error,   setError]   = useState('');
-  const [searched,setSearched]= useState(false);
-  const [ordCurPage, setOrdCurPage] = useState(1);
+  const [q,           setQ]           = useState('');
+  const [orders,      setOrders]      = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [syncing,     setSyncing]     = useState(false);
+  const [error,       setError]       = useState('');
+  const [searched,    setSearched]    = useState(false);
+  const [ordCurPage,  setOrdCurPage]  = useState(1);
   const [totalOrders, setTotalOrders] = useState(0);
-  const [sortBy, setSortBy] = useState('created_at');
-  const [sortDir, setSortDir] = useState('desc');
+  const [sortBy,      setSortBy]      = useState('created_at');
+  const [sortDir,     setSortDir]     = useState('desc');
+  const [localFilter, setLocalFilter] = useState('');
   const PAGE_SIZE = 100;
 
   const search = async (targetPage = 1) => {
@@ -900,10 +954,26 @@ function OrderSearch({ token }) {
       {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
       {searched && !loading && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-            {totalOrders} orders
+          {(() => {
+            const lf = localFilter.trim().toLowerCase();
+            const filtered = lf ? orders.filter(o => {
+              if ((o.ship_to_name  || '').toLowerCase().includes(lf)) return true;
+              if ((o.order_number  || '').toLowerCase().includes(lf)) return true;
+              if ((o.reference_no  || '').toLowerCase().includes(lf)) return true;
+              if ((o.order_items || []).some(it =>
+                (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
+                (it.sku || '').toLowerCase().includes(lf)
+              )) return true;
+              return false;
+            }) : orders;
+            return (<>
+          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: C.muted }}>{filtered.length !== orders.length ? `${filtered.length} / ` : ''}{totalOrders} orders</span>
+            <input value={localFilter} onChange={e => { setLocalFilter(e.target.value); setOrdCurPage(1); }}
+              placeholder="Filter by recipient / SKU name..."
+              style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 12, background: C.bg, color: C.text, width: 240 }} />
           </div>
-          {orders.length === 0 ? (
+          {filtered.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No orders found</div>
           ) : (
             <>
@@ -916,7 +986,7 @@ function OrderSearch({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o, i) => (
+                {filtered.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600 }}>{o.order_number}</td>
                     <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.reference_no || '—'}</td>
@@ -931,9 +1001,10 @@ function OrderSearch({ token }) {
                 ))}
               </tbody>
             </table>
-            <Pagination page={ordCurPage} total={totalOrders} pageSize={PAGE_SIZE} onChange={search} />
+            <Pagination page={ordCurPage} total={filtered.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
             </>
           )}
+          </>); })()}
         </div>
       )}
     </div>
