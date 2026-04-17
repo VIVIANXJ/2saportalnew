@@ -1876,6 +1876,35 @@ function ProductManagement({ token }) {
           <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
             + Add Product
           </button>
+          <button onClick={async () => {
+            setMsg('Fetching from JDL...');
+            try {
+              const r = await fetch('/api/products/import-from-jdl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ dryRun: true }),
+              });
+              const j = await r.json();
+              if (!j.success) throw new Error(j.error || JSON.stringify(j.raw || {}));
+              const preview = (j.sample || []).map(p => `${p.sku}: ${p.product_name || '(no name)'}`).join('\n');
+              if (!confirm(`Found ${j.count} products from JDL:\n\n${preview}\n\nImport all?`)) {
+                setMsg('Import cancelled.');
+                return;
+              }
+              const r2 = await fetch('/api/products/import-from-jdl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ dryRun: false }),
+              });
+              const j2 = await r2.json();
+              if (!j2.success) throw new Error(j2.error);
+              setMsg(`✅ ${j2.message}`);
+              productsLoaded = false;
+              load();
+            } catch(e) { setMsg(`❌ ${e.message}`); }
+          }} style={{ background: '#0369A1', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            🚢 Import from JDL
+          </button>
         </div>
       </div>
 
