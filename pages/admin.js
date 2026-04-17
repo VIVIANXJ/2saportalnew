@@ -967,6 +967,7 @@ function OrderSearch({ token }) {
               )
             ) : orders;
             return (
+            <>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: C.muted }}>{filtered.length !== orders.length ? `${filtered.length} / ` : ''}{totalOrders} orders</span>
             <input value={localFilter} onChange={e => { setLocalFilter(e.target.value); setOrdCurPage(1); }}
@@ -1002,6 +1003,8 @@ function OrderSearch({ token }) {
               </tbody>
             </table>
             <Pagination page={ordCurPage} total={filtered.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
+            </>
+          )}
             </>
           );
           })()}
