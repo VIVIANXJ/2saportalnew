@@ -393,12 +393,12 @@ export default function Portal() {
                 const [sb, sd] = e.target.value.split(':');
                 setOrderSortBy(sb); setOrderSortDir(sd);
               }} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
-                <option value="created_at:desc">Time ↓</option>
-                <option value="created_at:asc">Time ↑</option>
-                <option value="order_number:asc">Order No. ↑</option>
-                <option value="order_number:desc">Order No. ↓</option>
-                <option value="reference_no:asc">Reference ↑</option>
-                <option value="reference_no:desc">Reference ↓</option>
+                <option value="created_at:desc">Newest First</option>
+                <option value="created_at:asc">Oldest First</option>
+                <option value="order_number:asc">Order No. A-Z</option>
+                <option value="order_number:desc">Order No. Z-A</option>
+                <option value="reference_no:asc">Reference A-Z</option>
+                <option value="reference_no:desc">Reference Z-A</option>
               </select>
               <select value={orderWarehouseFilter} onChange={(e) => setOrderWarehouseFilter(e.target.value)} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
                 <option value="all">All warehouses</option>
@@ -458,9 +458,9 @@ export default function Portal() {
                 Hide zero stock
               </label>
               <select value={invSortBy} onChange={e => { setInvSortBy(e.target.value); setInvPage(1); }} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
-                <option value="updated_desc">SKU Updated ↓</option>
-                <option value="updated_asc">SKU Updated ↑</option>
-                <option value="sku_asc">SKU ↑</option>
+                <option value="updated_desc">Recently Updated</option>
+                <option value="updated_asc">Oldest Updated</option>
+                <option value="sku_asc">SKU A-Z</option>
               </select>
             </div>
           </div>
