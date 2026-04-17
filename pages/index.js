@@ -246,8 +246,9 @@ export default function Portal() {
         setOrders(combined);
         setOrderTotal(combined.length);
       } else if (tab === 'inventory') {
+        // 不传 sku 给 API（ECCANG 只支持精确匹配）
+        // 拉全量，前端做 fuzzy filter（见 invSearch state）
         const params = new URLSearchParams();
-        if (q) params.set('sku', q);
         const res  = await fetch(`/api/warehouse/inventory?${params}`);
         const json = await res.json();
         if (!json.success) throw new Error(json.error);
@@ -268,7 +269,11 @@ export default function Portal() {
     } finally {
       setLoading(false);
       if (tab === 'orders') setSearchedOrders(true);
-      if (tab === 'inventory') setSearchedInventory(true);
+      if (tab === 'inventory') {
+        setSearchedInventory(true);
+        setInvSearch(q || ''); // sync search query to fuzzy filter
+        setInvPage(1);
+      }
       if (tab === 'manual_orders') setSearchedManual(true);
     }
   }, [tab, orderSortBy, orderSortDir]);
