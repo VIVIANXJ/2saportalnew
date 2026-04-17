@@ -511,28 +511,30 @@ function OrderTypeUpdate({ token }) {
 
 // ── Inventory View ─────────────────────────────────────────────
 function InventoryView({ token }) {
-  const [sku,     setSku]     = useState('');
-  const [items,   setItems]   = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const [searched,setSearched]= useState(false);
-  const [total,   setTotal]   = useState(0);
+  const [sku,        setSku]        = useState('');
+  const [items,      setItems]      = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState('');
+  const [searched,   setSearched]   = useState(false);
   const [invCurPage, setInvCurPage] = useState(1);
+  const [invFilter,  setInvFilter]  = useState('all');
+  const [hideZero,   setHideZero]   = useState(false);
+  const [invSearch,  setInvSearch]  = useState('');
+  const [invSortBy,  setInvSortBy]  = useState('sku_asc');
   const PAGE_SIZE = 100;
 
-  const search = async (fetchAll = false) => {
+  const search = async () => {
     setLoading(true); setError(''); setInvCurPage(1);
     try {
       const params = new URLSearchParams();
       if (sku.trim()) params.set('sku', sku.trim());
-      // ECCANG 全量
-      const eccangRes  = await fetch(`/api/warehouse/eccang/inventory?${params}`);
+      const [eccangRes, jdlRes] = await Promise.all([
+        fetch(`/api/warehouse/eccang/inventory?${params}`),
+        fetch(`/api/warehouse/jdl/inventory?${params}`),
+      ]);
       const eccangJson = await eccangRes.json();
-      // JDL 全量
-      const jdlRes  = await fetch(`/api/warehouse/jdl/inventory?${params}`);
-      const jdlJson = await jdlRes.json();
+      const jdlJson    = await jdlRes.json();
 
-      // 合并：按 SKU 分组
       const skuMap = {};
       (eccangJson.data || []).forEach(item => {
         if (!skuMap[item.sku]) skuMap[item.sku] = { sku: item.sku, warehouses: {} };
@@ -543,9 +545,7 @@ function InventoryView({ token }) {
         skuMap[item.sku].warehouses[item.warehouse_code || 'JDL'] = item;
       });
 
-      const combined = Object.values(skuMap);
-      setItems(combined);
-      setTotal(combined.length);
+      setItems(Object.values(skuMap));
       setSearched(true);
     } catch (e) {
       setError(e.message);
@@ -557,60 +557,125 @@ function InventoryView({ token }) {
   return (
     <div>
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Inventory — All Warehouses</h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+
+      {/* Search bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <input value={sku} onChange={e => setSku(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search()}
           placeholder="Search by SKU (leave blank for all)..."
           style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
-        <button onClick={() => search()} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+        <button onClick={search} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
         </button>
       </div>
-      {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
-      {searched && !loading && (
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-            {total} SKUs across all warehouses
-          </div>
-          {items.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No inventory found</div>
-          ) : (
-            <>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
-              <thead>
-                <tr style={{ background: C.surfaceAlt }}>
-                  {['SKU', 'Warehouse', 'Sellable', 'Reserved', 'On-way'].map(h => (
-                    <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {items.slice((invCurPage-1)*PAGE_SIZE, invCurPage*PAGE_SIZE).flatMap((item, i) => {
-                  const whEntries = Object.entries(item.warehouses);
-                  return whEntries.map(([wh, data], j) => {
-                    const isJDL = !isEccangWarehouse(wh);
-                    return (
-                      <tr key={`${i}-${j}`} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, opacity: j === 0 ? 1 : 0.3 }}>
-                          {j === 0 ? item.sku : ''}
-                        </td>
-                        <td style={{ padding: '8px 14px' }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: isJDL ? C.accentDim : '#F5F3FF', color: isJDL ? C.accent : '#7C3AED', border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}` }}>{warehouseLabel(wh)}</span>
-                        </td>
-                        <td style={{ padding: '8px 14px', fontWeight: 700, color: data.sellable > 0 ? C.success : C.muted }}>{data.sellable || 0}</td>
-                        <td style={{ padding: '8px 14px', color: data.reserved > 0 ? C.warning : C.muted }}>{data.reserved || 0}</td>
-                        <td style={{ padding: '8px 14px', color: data.onway > 0 ? C.accent : C.muted }}>{data.onway || 0}</td>
-                      </tr>
-                    );
-                  });
-                })}
-              </tbody>
-            </table>
-            <Pagination page={invCurPage} total={items.length} pageSize={PAGE_SIZE} onChange={setInvCurPage} />
-            </>
-          )}
+
+      {/* Filter bar — same as client portal */}
+      {searched && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+          <input value={invSearch} onChange={e => { setInvSearch(e.target.value); setInvCurPage(1); }}
+            placeholder="Filter by SKU..."
+            style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 180 }} />
+          {[['all','All Warehouses'],['ECCANG','2SA Warehouse'],['C0000001174','JD-SYD1'],['C0000001901','JD-MEL1']].map(([v, l]) => (
+            <button key={v} onClick={() => { setInvFilter(v); setInvCurPage(1); }} style={{
+              padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+              border: `1px solid ${invFilter === v ? C.accent : C.border}`,
+              background: invFilter === v ? C.accentDim : C.surface,
+              color: invFilter === v ? C.accent : C.muted,
+              fontWeight: invFilter === v ? 600 : 400,
+            }}>{l}</button>
+          ))}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+            <input type="checkbox" checked={hideZero} onChange={e => { setHideZero(e.target.checked); setInvCurPage(1); }} />
+            Hide zero stock
+          </label>
+          <select value={invSortBy} onChange={e => { setInvSortBy(e.target.value); setInvCurPage(1); }}
+            style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
+            <option value="sku_asc">SKU A-Z</option>
+            <option value="sku_desc">SKU Z-A</option>
+            <option value="sellable_desc">Sellable High-Low</option>
+            <option value="sellable_asc">Sellable Low-High</option>
+          </select>
         </div>
       )}
+
+      {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
+
+      {searched && !loading && (() => {
+        // Apply filters
+        const qSku = invSearch.trim().toLowerCase();
+        const filteredItems = items.filter(item => {
+          if (qSku && !(item.sku || '').toLowerCase().includes(qSku)) return false;
+          return true;
+        });
+
+        // Build flat rows with warehouse filter + hide zero
+        const rows = [];
+        filteredItems.forEach(item => {
+          Object.entries(item.warehouses).forEach(([wh, data]) => {
+            if (invFilter !== 'all' && wh !== invFilter) return;
+            if (hideZero && !(data.sellable || data.reserved || data.onway)) return;
+            rows.push({ sku: item.sku, wh, data });
+          });
+        });
+
+        // Sort
+        rows.sort((a, b) => {
+          if (invSortBy === 'sku_asc')       return String(a.sku).localeCompare(String(b.sku));
+          if (invSortBy === 'sku_desc')      return String(b.sku).localeCompare(String(a.sku));
+          if (invSortBy === 'sellable_desc') return (b.data.sellable||0) - (a.data.sellable||0);
+          if (invSortBy === 'sellable_asc')  return (a.data.sellable||0) - (b.data.sellable||0);
+          return 0;
+        });
+
+        const pagedRows = rows.slice((invCurPage-1)*PAGE_SIZE, invCurPage*PAGE_SIZE);
+
+        return (
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+              {rows.length} rows · {filteredItems.length} SKUs
+            </div>
+            {rows.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>No inventory found</div>
+            ) : (
+              <>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: C.surfaceAlt }}>
+                    {['SKU', 'Warehouse', 'Sellable', 'Reserved', 'On-way', 'Total'].map(h => (
+                      <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedRows.map((row, i) => {
+                    const isJDL  = !isEccangWarehouse(row.wh);
+                    const prev   = pagedRows[i-1];
+                    const isFirst = !prev || prev.sku !== row.sku;
+                    return (
+                      <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, borderTop: isFirst && i > 0 ? `2px solid ${C.border}` : 'none' }}>
+                        <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12, opacity: isFirst ? 1 : 0.3 }}>
+                          {isFirst ? row.sku : ''}
+                        </td>
+                        <td style={{ padding: '8px 14px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, background: isJDL ? C.accentDim : '#F5F3FF', color: isJDL ? C.accent : '#7C3AED', border: `1px solid ${isJDL ? '#BFDBFE' : '#DDD6FE'}` }}>
+                            {warehouseLabel(row.wh)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 14px', fontWeight: 700, color: row.data.sellable > 0 ? C.success : C.muted }}>{row.data.sellable || 0}</td>
+                        <td style={{ padding: '8px 14px', color: row.data.reserved > 0 ? C.warning : C.muted }}>{row.data.reserved || 0}</td>
+                        <td style={{ padding: '8px 14px', color: row.data.onway > 0 ? C.accent : C.muted }}>{row.data.onway || 0}</td>
+                        <td style={{ padding: '8px 14px', fontWeight: 700, color: C.text }}>{(row.data.sellable||0) + (row.data.reserved||0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <Pagination page={invCurPage} total={rows.length} pageSize={PAGE_SIZE} onChange={setInvCurPage} />
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -875,6 +940,54 @@ function OrderSearch({ token }) {
 }
 
 
+
+// ── Carrier tracking URL map ───────────────────────────────────
+const CARRIER_TRACKING_URLS = {
+  // AusPost variants
+  'auspost':    'http://auspost.com.au/track/track.html?id=',
+  'aupost':     'http://auspost.com.au/track/track.html?id=',
+  'ap std':     'http://auspost.com.au/track/track.html?id=',
+  'ap exp':     'http://auspost.com.au/track/track.html?id=',
+  'ap int':     'http://auspost.com.au/track/track.html?id=',
+  'australia post': 'http://auspost.com.au/track/track.html?id=',
+  // DHL
+  'dhl':        'https://www.dhl.com/au-en/home/tracking.html?tracking-id=',
+  // Toll
+  'toll':       'https://www.mytoll.com/?externalSearchQuery=',
+  // Direct Freight / DFE
+  'dfe':        'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  'df-':        'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  'direct freight': 'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  // TNT
+  'tnt':        'https://www.tnt.com/express/en_au/site/shipping-tools/tracking.html?searchType=con&cons=',
+  // Sendle
+  'sendle':     'https://track.sendle.com/tracking?ref=',
+  // NZ Post
+  'nz post':    'https://www.nzpost.co.nz/tools/tracking',
+  'nzpost':     'https://www.nzpost.co.nz/tools/tracking',
+  // SG Post
+  'sg post':    'https://www.singpost.com/track-items?ti=',
+  'sgpost':     'https://www.singpost.com/track-items?ti=',
+  // FedEx
+  'fedex':      'https://www.fedex.com/fedextrack/?trknbr=',
+  // Capital Transport
+  'capital':    'https://capitaltransport.com.au/',
+  // Asendia
+  'asendia':    'https://tracking.asendia.com/',
+};
+
+function getTrackingUrl(carrier, trackingNumber) {
+  if (!carrier || !trackingNumber) return null;
+  const key = carrier.toLowerCase().trim();
+  // exact match먼저
+  if (CARRIER_TRACKING_URLS[key]) return CARRIER_TRACKING_URLS[key] + trackingNumber;
+  // startsWith match (df- 등)
+  for (const [k, url] of Object.entries(CARRIER_TRACKING_URLS)) {
+    if (key.startsWith(k) || key.includes(k)) return url + trackingNumber;
+  }
+  return null;
+}
+
 // ── Manual Order Management ────────────────────────────────────
 function ManualOrderManage({ token }) {
   const [orders,    setOrders]    = useState([]);
@@ -1045,7 +1158,16 @@ function ManualOrderManage({ token }) {
                       </td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.text }}>{order.ship_to_name}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.carrier || <span style={{ color: C.border }}>—</span>}</td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace', color: C.muted }}>{order.tracking_number || <span style={{ color: C.border }}>—</span>}</td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace' }}>
+                        {order.tracking_number ? (() => {
+                          const url = getTrackingUrl(order.carrier, order.tracking_number);
+                          return url
+                            ? <a href={url} target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: 'none', fontWeight: 500 }} title="Track shipment">
+                                {order.tracking_number} ↗
+                              </a>
+                            : <span style={{ color: C.muted }}>{order.tracking_number}</span>;
+                        })() : <span style={{ color: C.border }}>—</span>}
+                      </td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
