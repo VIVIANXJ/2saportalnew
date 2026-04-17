@@ -1048,9 +1048,30 @@ function ManualOrderManage({ token }) {
                       <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace', color: C.muted }}>{order.tracking_number || <span style={{ color: C.border }}>—</span>}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
                       <td style={{ padding: '10px 12px' }}>
-                        <button onClick={() => startEdit(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                          Edit
-                        </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <button onClick={() => startEdit(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                            ✏️ Edit
+                          </button>
+                          <button onClick={() => {
+                            const tracking = prompt(`Enter tracking number for ${order.order_number}:`);
+                            if (!tracking?.trim()) return;
+                            const carrier = prompt('Carrier (e.g. AusPost, FedEx):') || '';
+                            fetch(`/api/orders/manual?id=${order.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                              body: JSON.stringify({ tracking_number: tracking.trim(), carrier, status: 'shipped' }),
+                            }).then(r => r.json()).then(j => {
+                              if (j.success) {
+                                setSaveMsg(`✅ Tracking updated: ${tracking.trim()}`);
+                                setOrders(prev => prev.map(o => o.id === order.id ? { ...o, tracking_number: tracking.trim(), carrier, status: 'shipped' } : o));
+                              } else {
+                                setSaveMsg(`❌ ${j.error}`);
+                              }
+                            });
+                          }} style={{ background: '#F0FDF4', color: '#059669', border: `1px solid #A7F3D0`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                            🚚 Tracking
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -1070,6 +1091,206 @@ function ManualOrderManage({ token }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── Manual Order Bulk Upload ───────────────────────────────────
+function ManualOrderBulkUpload({ token }) {
+  const [csvText,   setCsvText]   = useState('');
+  const [preview,   setPreview]   = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [result,    setResult]    = useState(null);
+  const [error,     setError]     = useState('');
+  const [pushSS,    setPushSS]    = useState(true);
+
+  const REQUIRED_COLS = ['reference_no','ship_to_name','address1','suburb','state','postcode','sku','quantity'];
+  const TEMPLATE = 'reference_no,client,ship_to_name,customer_company,customer_phone,customer_email,address1,address2,suburb,state,postcode,country,sku,product_name,quantity,price,notes
+' +
+    'REF-001,ASL,John Smith,Acme Corp,0400000001,john@example.com,123 Main St,,Sydney,NSW,2000,AU,SKU-001,Product Name,2,9.99,
+' +
+    'REF-002,ASL,Jane Doe,,0400000002,,456 High St,Unit 1,Melbourne,VIC,3000,AU,SKU-002,Another Product,1,19.99,';
+
+  const parseCSV = (text) => {
+    const lines  = text.trim().split('
+').filter(l => l.trim());
+    if (lines.length < 2) return [];
+    const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+    const rows   = [];
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const row  = {};
+      header.forEach((h, j) => row[h] = vals[j] || '');
+      rows.push(row);
+    }
+    return rows;
+  };
+
+  // Group rows by reference_no — multiple rows = multiple SKUs for same order
+  const groupOrders = (rows) => {
+    const map = {};
+    rows.forEach(row => {
+      const key = row.reference_no || `_noref_${Math.random()}`;
+      if (!map[key]) {
+        map[key] = {
+          reference_no:     row.reference_no,
+          client:           row.client || 'ASL',
+          ship_to_name:     row.ship_to_name,
+          customer_company: row.customer_company || '',
+          customer_phone:   row.customer_phone   || '',
+          customer_email:   row.customer_email   || '',
+          ship_to_address: {
+            address1: row.address1,
+            address2: row.address2 || '',
+            suburb:   row.suburb,
+            state:    row.state,
+            postcode: row.postcode,
+            country:  row.country || 'AU',
+          },
+          notes: row.notes || '',
+          items: [],
+        };
+      }
+      if (row.sku && Number(row.quantity) > 0) {
+        map[key].items.push({
+          sku:          row.sku,
+          product_name: row.product_name || '',
+          quantity:     Number(row.quantity),
+          price:        row.price !== '' ? Number(row.price) : null,
+        });
+      }
+    });
+    return Object.values(map);
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      setCsvText(text);
+      const rows    = parseCSV(text);
+      const grouped = groupOrders(rows);
+      setPreview(grouped);
+      setResult(null);
+      setError('');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleUpload = async () => {
+    if (!preview.length) return;
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const res  = await fetch('/api/orders/manual', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ bulk: true, orders: preview, push_to_shipstation: pushSS }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      setResult(json);
+      setPreview([]);
+      setCsvText('');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([TEMPLATE], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'manual_order_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 4 }}>Bulk Upload Orders</h2>
+      <p style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>
+        Upload a CSV to create multiple manual orders at once. Multiple rows with the same reference_no will be grouped as one order with multiple items.
+      </p>
+
+      {/* Template download */}
+      <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 2 }}>CSV Template</div>
+          <div style={{ fontSize: 12, color: C.muted }}>Required columns: {REQUIRED_COLS.join(', ')}</div>
+        </div>
+        <button onClick={downloadTemplate} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: C.accent }}>
+          ⬇️ Download Template
+        </button>
+      </div>
+
+      {/* File upload */}
+      <div style={{ background: C.surface, border: `2px dashed ${C.border}`, borderRadius: 10, padding: '24px', marginBottom: 16, textAlign: 'center' }}>
+        <input type="file" accept=".csv" onChange={handleFile} id="bulk-csv-input" style={{ display: 'none' }} />
+        <label htmlFor="bulk-csv-input" style={{ cursor: 'pointer' }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>Click to select CSV file</div>
+          <div style={{ fontSize: 12, color: C.muted }}>or drag and drop</div>
+        </label>
+      </div>
+
+      {/* Preview */}
+      {preview.length > 0 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{preview.length} orders ready to create</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
+              <input type="checkbox" checked={pushSS} onChange={e => setPushSS(e.target.checked)} />
+              Push to ShipStation
+            </label>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: C.surfaceAlt }}>
+                {['Reference', 'Client', 'Ship To', 'Address', 'Items'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, borderBottom: `1px solid ${C.border}`, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.map((o, i) => (
+                <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '8px 12px', color: C.accent, fontWeight: 600 }}>{o.reference_no || <span style={{ color: C.border }}>—</span>}</td>
+                  <td style={{ padding: '8px 12px', color: C.muted }}>{o.client}</td>
+                  <td style={{ padding: '8px 12px', color: C.text }}>{o.ship_to_name}</td>
+                  <td style={{ padding: '8px 12px', color: C.muted }}>{o.ship_to_address?.suburb}, {o.ship_to_address?.state} {o.ship_to_address?.postcode}</td>
+                  <td style={{ padding: '8px 12px', color: C.muted }}>{o.items.map(it => `${it.sku}×${it.quantity}`).join(', ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {error && <div style={{ color: C.danger, background: C.dangerBg, border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
+
+      {result && (
+        <div style={{ background: C.successBg, border: '1px solid #A7F3D0', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.success, marginBottom: 8 }}>
+            ✅ Created {result.created} orders {result.failed > 0 ? `(${result.failed} failed)` : ''}
+          </div>
+          {result.results?.filter(r => !r.success).map((r, i) => (
+            <div key={i} style={{ fontSize: 12, color: C.danger }}>✗ {r.reference_no}: {r.error}</div>
+          ))}
+          {result.results?.filter(r => r.success && r.shipstation && !r.shipstation.pushed).map((r, i) => (
+            <div key={i} style={{ fontSize: 12, color: C.warning }}>⚠️ {r.order_number}: SS not pushed — {r.shipstation.reason}</div>
+          ))}
+        </div>
+      )}
+
+      {preview.length > 0 && (
+        <button onClick={handleUpload} disabled={loading} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+          {loading ? 'Creating...' : `Create ${preview.length} Orders`}
+        </button>
       )}
     </div>
   );
@@ -1236,7 +1457,8 @@ export default function AdminPage() {
   const nav = [
     { key: 'orders',     label: '📦 ECCANG Orders' },
     { key: 'manual_orders', label: '📋 Manual Orders' },
-    { key: 'manual_create', label: '📝 Create Manual Order' },
+    { key: 'manual_create', label: '📝 Create Order' },
+    { key: 'manual_bulk',   label: '📤 Bulk Upload Orders' },
     { key: 'order_type', label: '⚙️ Order Type' },
     { key: 'jdl_orders', label: '🚢 JDL Orders' },
     { key: 'inventory',  label: '📊 Inventory' },
@@ -1279,6 +1501,7 @@ export default function AdminPage() {
           {section === 'orders'     && <OrderSearch    token={token} />}
           {section === 'manual_orders' && <ManualOrderManage token={token} />}
           {section === 'manual_create' && <ManualOrderCreate token={token} />}
+          {section === 'manual_bulk'   && <ManualOrderBulkUpload token={token} />}
           {section === 'order_type' && <OrderTypeUpdate token={token} />}
           {section === 'jdl_orders' && <JdlOrderSearch token={token} />}
           {section === 'inventory'  && <InventoryView  token={token} />}
