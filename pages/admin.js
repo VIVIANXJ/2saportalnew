@@ -437,12 +437,12 @@ function OrderTypeUpdate({ token }) {
             const [sb, sd] = e.target.value.split(':');
             setSortBy(sb); setSortDir(sd);
           }} style={{ padding: '10px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
-            <option value="created_at:desc">Newest First</option>
-            <option value="created_at:asc">Oldest First</option>
-            <option value="order_number:asc">Order No. A-Z</option>
-            <option value="order_number:desc">Order No. Z-A</option>
-            <option value="reference_no:asc">Reference A-Z</option>
-            <option value="reference_no:desc">Reference Z-A</option>
+            <option value="created_at:desc">Time ↓</option>
+            <option value="created_at:asc">Time ↑</option>
+            <option value="order_number:asc">Order No. ↑</option>
+            <option value="order_number:desc">Order No. ↓</option>
+            <option value="reference_no:asc">Reference ↑</option>
+            <option value="reference_no:desc">Reference ↓</option>
           </select>
         </div>
 
@@ -820,12 +820,12 @@ function OrderSearch({ token }) {
           const [sb, sd] = e.target.value.split(':');
           setSortBy(sb); setSortDir(sd);
         }} style={{ padding: '10px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
-          <option value="created_at:desc">Newest First</option>
-          <option value="created_at:asc">Oldest First</option>
-          <option value="order_number:asc">Order No. A-Z</option>
-          <option value="order_number:desc">Order No. Z-A</option>
-          <option value="reference_no:asc">Reference A-Z</option>
-          <option value="reference_no:desc">Reference Z-A</option>
+          <option value="created_at:desc">Time ↓</option>
+          <option value="created_at:asc">Time ↑</option>
+          <option value="order_number:asc">Order No. ↑</option>
+          <option value="order_number:desc">Order No. ↓</option>
+          <option value="reference_no:asc">Reference ↑</option>
+          <option value="reference_no:desc">Reference ↓</option>
         </select>
         <button onClick={syncFromEccang} style={{ background: '#fff', color: C.accent, border: `1px solid ${C.accentDim}`, borderRadius: 8, padding: '10px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {syncing ? 'Syncing...' : 'Sync ECCANG -> DB'}
@@ -1453,16 +1453,34 @@ export default function AdminPage() {
     setToken(null); setUser(null);
   };
 
-  const nav = [
-    { key: 'orders',     label: '📦 ECCANG Orders' },
-    { key: 'manual_orders', label: '📋 Manual Orders' },
-    { key: 'manual_create', label: '📝 Create Order' },
-    { key: 'manual_bulk',   label: '📤 Bulk Upload Orders' },
-    { key: 'order_type', label: '⚙️ Order Type' },
-    { key: 'jdl_orders', label: '🚢 JDL Orders' },
-    { key: 'inventory',  label: '📊 Inventory' },
-    { key: 'upload',     label: '🔄 Sync ECCANG Orders' },
-    { key: 'tracking',   label: '🚚 Update Tracking' },
+  const navGroups = [
+    {
+      group: 'Manual Orders',
+      icon: '📝',
+      items: [
+        { key: 'manual_orders',  label: 'View Orders' },
+        { key: 'manual_create',  label: 'Create Order' },
+        { key: 'manual_bulk',    label: 'Bulk Upload' },
+      ],
+    },
+    {
+      group: 'Standard Orders',
+      icon: '📦',
+      items: [
+        { key: 'orders',      label: 'ECCANG Orders' },
+        { key: 'jdl_orders',  label: 'JDL Orders' },
+        { key: 'order_type',  label: 'Order Type' },
+        { key: 'upload',      label: 'Sync ECCANG' },
+        { key: 'tracking',    label: 'Update Tracking' },
+      ],
+    },
+    {
+      group: 'Inventory',
+      icon: '📊',
+      items: [
+        { key: 'inventory', label: 'View Inventory' },
+      ],
+    },
   ];
 
   return (
@@ -1487,11 +1505,28 @@ export default function AdminPage() {
 
       <div style={{ display: 'flex', maxWidth: 1200, margin: '0 auto' }}>
         {/* Sidebar */}
-        <nav style={{ width: 220, padding: '24px 16px', borderRight: `1px solid ${C.border}`, minHeight: 'calc(100vh - 56px)' }}>
-          {nav.map(({ key, label }) => (
-            <button key={key} onClick={() => setSection(key)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: section === key ? 600 : 400, background: section === key ? C.accentDim : 'transparent', color: section === key ? C.accent : C.muted, marginBottom: 4 }}>
-              {label}
-            </button>
+        <nav style={{ width: 220, padding: '16px 12px', borderRight: `1px solid ${C.border}`, minHeight: 'calc(100vh - 56px)' }}>
+          {navGroups.map(({ group, icon, items }) => (
+            <div key={group} style={{ marginBottom: 8 }}>
+              {/* Group header */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '8px 10px 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>{icon}</span>{group}
+              </div>
+              {/* Sub-items */}
+              {items.map(({ key, label }) => (
+                <button key={key} onClick={() => setSection(key)} style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  padding: '7px 10px 7px 22px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: section === key ? 600 : 400,
+                  background: section === key ? C.accentDim : 'transparent',
+                  color: section === key ? C.accent : C.muted,
+                  marginBottom: 2,
+                }}>
+                  {label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
