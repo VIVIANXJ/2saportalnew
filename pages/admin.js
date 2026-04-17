@@ -187,10 +187,10 @@ function OrderUpload({ token }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Upload Orders</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Sync ECCANG Orders</h2>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24, marginBottom: 16 }}>
         <p style={{ fontSize: 13, color: C.muted, marginBottom: 16 }}>
-          Upload a CSV file with columns: <code style={{ background: C.surfaceAlt, padding: '2px 6px', borderRadius: 4 }}>order_code, ref_code, tracking_number, carrier, status</code>
+          Sync existing ECCANG orders into Supabase. Upload a CSV exported from ECCANG with columns: <code style={{ background: C.surfaceAlt, padding: '2px 6px', borderRadius: 4 }}>order_code, ref_code, tracking_number, carrier, status</code>
         </p>
         <button
           onClick={downloadTemplate}
@@ -210,7 +210,7 @@ function OrderUpload({ token }) {
         {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
         <button onClick={handleUpload} disabled={!csvText || loading}
           style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: csvText ? 'pointer' : 'not-allowed', opacity: csvText ? 1 : 0.5 }}>
-          {loading ? 'Uploading...' : 'Upload Orders'}
+          {loading ? 'Syncing...' : 'Sync Orders'}
         </button>
       </div>
       {results && (
@@ -1461,7 +1461,7 @@ export default function AdminPage() {
     { key: 'order_type', label: '⚙️ Order Type' },
     { key: 'jdl_orders', label: '🚢 JDL Orders' },
     { key: 'inventory',  label: '📊 Inventory' },
-    { key: 'upload',     label: '⬆️ Upload Orders' },
+    { key: 'upload',     label: '🔄 Sync ECCANG Orders' },
     { key: 'tracking',   label: '🚚 Update Tracking' },
   ];
 
