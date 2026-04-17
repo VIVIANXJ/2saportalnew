@@ -1085,6 +1085,39 @@ function ManualOrderManage({ token }) {
         }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           🔄 Sync from SS
         </button>
+        <button onClick={async () => {
+          setSaveMsg('Previewing ECCANG matches...');
+          try {
+            // First dry run to preview
+            const r = await fetch('/api/orders/sync-from-eccang', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ dryRun: true }),
+            });
+            const j = await r.json();
+            const matches = (j.results || []).filter(r => r.status === 'preview');
+            if (matches.length === 0) {
+              setSaveMsg('No matching ECCANG orders found for any manual order without tracking.');
+              return;
+            }
+            const preview = matches.map(m => `${m.order_number} (${m.reference_no}) → ${m.tracking_number} via ${m.carrier}`).join('\n');
+            if (!confirm(`Found ${matches.length} matches:\n\n${preview}\n\nConfirm sync?`)) {
+              setSaveMsg('Sync cancelled.');
+              return;
+            }
+            // Actual sync
+            const r2 = await fetch('/api/orders/sync-from-eccang', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ dryRun: false }),
+            });
+            const j2 = await r2.json();
+            setSaveMsg(`ECCANG Sync: ${j2.summary?.synced || 0} synced, ${j2.summary?.no_match || 0} no match, ${j2.summary?.errors || 0} errors`);
+            load(page);
+          } catch(e) { setSaveMsg(`Sync error: ${e.message}`); }
+        }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          📦 Sync from ECCANG
+        </button>
       </div>
 
       {saveMsg && (
