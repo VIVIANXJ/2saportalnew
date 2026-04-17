@@ -255,5 +255,111 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, data: order, shipstation });
   }
 
+
+  // Bulk upload: POST with { bulk: true, orders: [...] }
+  if (req.method === 'POST' && req.body?.bulk) {
+    const auth  = req.headers.authorization || '';
+    const token = auth.replace('Bearer ', '');
+    if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { orders: bulkOrders = [], push_to_shipstation = false } = req.body;
+    if (!Array.isArray(bulkOrders) || bulkOrders.length === 0) {
+      return res.status(400).json({ error: 'No orders provided' });
+    }
+
+    const results = [];
+
+    for (const row of bulkOrders) {
+      try {
+        const {
+          reference_no = '',
+          client = 'ASL',
+          ship_to_name,
+          customer_company = '',
+          customer_phone = '',
+          customer_email = '',
+          ship_to_address,
+          notes = '',
+          items = [],
+        } = row;
+
+        if (!ship_to_name || !ship_to_address?.address1 || !ship_to_address?.suburb || !ship_to_address?.state || !ship_to_address?.postcode) {
+          results.push({ reference_no, success: false, error: 'Missing required fields' });
+          continue;
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+          results.push({ reference_no, success: false, error: 'No items' });
+          continue;
+        }
+
+        const order_number = generateManualOrderNumber();
+        const orderPayload = {
+          order_number,
+          reference_no: reference_no || null,
+          order_type: 'standard',
+          status: 'pending',
+          client: ['ASL','CCEP'].includes(client) ? client : 'ASL',
+          warehouse: 'BOTH',
+          ship_to_name,
+          ship_to_address: { ...ship_to_address, country: ship_to_address.country || 'AU' },
+          notes: `[MANUAL] ${notes || ''}`.trim(),
+          customer_company,
+          customer_phone,
+          customer_email,
+          items,
+        };
+
+        const { data: order, error } = await supabase
+          .from('orders')
+          .insert({
+            order_number: orderPayload.order_number,
+            reference_no: orderPayload.reference_no,
+            order_type:   orderPayload.order_type,
+            status:       orderPayload.status,
+            client:       orderPayload.client,
+            warehouse:    orderPayload.warehouse,
+            ship_to_name: orderPayload.ship_to_name,
+            ship_to_address: orderPayload.ship_to_address,
+            notes:        orderPayload.notes,
+          })
+          .select()
+          .single();
+
+        if (error) { results.push({ reference_no, success: false, error: error.message }); continue; }
+
+        const lineItems = items
+          .filter(it => it?.sku && Number(it?.quantity) > 0)
+          .map(it => ({
+            order_id:     order.id,
+            sku:          String(it.sku).trim(),
+            product_name: String(it.product_name || '').trim(),
+            quantity:     Number(it.quantity),
+            notes:        it.price != null ? `price:${it.price}` : null,
+          }));
+
+        if (lineItems.length > 0) {
+          await supabase.from('order_items').insert(lineItems);
+        }
+
+        let shipstation = { pushed: false, reason: 'disabled' };
+        if (push_to_shipstation) {
+          shipstation = await pushToShipStation(orderPayload);
+        }
+
+        results.push({ reference_no, order_number, success: true, shipstation });
+
+        // Small delay to avoid overwhelming SS
+        if (push_to_shipstation) await new Promise(r => setTimeout(r, 200));
+
+      } catch (e) {
+        results.push({ reference_no: row.reference_no, success: false, error: e.message });
+      }
+    }
+
+    const created = results.filter(r => r.success).length;
+    const failed  = results.filter(r => !r.success).length;
+    return res.status(201).json({ success: true, created, failed, results });
+  }
+
   return res.status(405).json({ error: 'Method not allowed' });
 }
