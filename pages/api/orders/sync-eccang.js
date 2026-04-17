@@ -1,28 +1,26 @@
+/**
+ * /api/orders/sync-from-eccang
+ * 
+ * 按参考号匹配：把 ECCANG/JDL 订单的 tracking 同步到 Manual Orders
+ * 
+ * POST { dryRun: true }  — 预览会匹配到哪些，不实际更新
+ * POST { dryRun: false } — 实际同步
+ */
+
 import { createClient } from '@supabase/supabase-js';
-import xml2js from 'xml2js';
 import { verifyToken } from '../auth/login';
+import xml2js from 'xml2js';
 
 const ECCANG_BASE_URL = process.env.ECCANG_BASE_URL;
-const APP_TOKEN = process.env.ECCANG_APP_TOKEN;
-const APP_KEY = process.env.ECCANG_APP_KEY;
-const WAREHOUSE_CODE = process.env.ECCANG_WAREHOUSE_CODE || 'AUSYD';
-const DEFAULT_SYNC_CLIENT = (process.env.DEFAULT_SYNC_CLIENT || 'ASL').toUpperCase() === 'CCEP' ? 'CCEP' : 'ASL';
+const APP_TOKEN       = process.env.ECCANG_APP_TOKEN;
+const APP_KEY         = process.env.ECCANG_APP_KEY;
+const WAREHOUSE_CODE  = process.env.ECCANG_WAREHOUSE_CODE || 'AUSYD';
 
-function normaliseStatus(rawStatus) {
-  const s = String(rawStatus || '').toLowerCase();
-  if (s.includes('cancel')) return 'cancelled';
-  if (s.includes('deliver') || s.includes('sign') || s.includes('完成')) return 'delivered';
-  if (s.includes('ship') || s.includes('out') || s.includes('出库') || s.includes('dispatch')) return 'shipped';
-  if (s.includes('pack')) return 'packed';
-  if (s.includes('process') || s.includes('pick') || s.includes('分拣')) return 'processing';
-  return 'pending';
-}
-
-function resolveClient(referenceNo) {
-  const ref = String(referenceNo || '').toUpperCase();
-  if (ref.startsWith('ASL')) return 'ASL';
-  if (ref.startsWith('CCEP')) return 'CCEP';
-  return DEFAULT_SYNC_CLIENT;
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
 }
 
 function buildSoap(service, paramsJson) {
@@ -40,101 +38,121 @@ function buildSoap(service, paramsJson) {
 }
 
 async function parseSoap(xmlText) {
-  const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: true });
-  const result = await parser.parseStringPromise(xmlText);
+  const parser   = new xml2js.Parser({ explicitArray: false, ignoreAttrs: true });
+  const result   = await parser.parseStringPromise(xmlText);
   const envelope = result['SOAP-ENV:Envelope'] || result['soapenv:Envelope'];
-  const body = envelope['SOAP-ENV:Body'] || envelope['soapenv:Body'];
-  const response = body['ns1:callServiceResponse']?.response || body['callServiceResponse']?.response;
+  const body     = envelope['SOAP-ENV:Body']   || envelope['soapenv:Body'];
+  const response = body['ns1:callServiceResponse']?.response
+                || body['callServiceResponse']?.response;
   return JSON.parse(response);
 }
 
-async function callEccang(params) {
+async function fetchEccangOrderByRef(refCode) {
   const res = await fetch(ECCANG_BASE_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/xml; charset=UTF-8', SOAPAction: '' },
-    body: buildSoap('getOrderList', params),
+    method:  'POST',
+    headers: { 'Content-Type': 'text/xml; charset=UTF-8', 'SOAPAction': '' },
+    body:    buildSoap('getOrderByRefCode', { ref_code: refCode, warehouse_code: WAREHOUSE_CODE }),
   });
   if (!res.ok) throw new Error(`ECCANG HTTP ${res.status}`);
-  return parseSoap(await res.text());
-}
-
-function norm(order) {
-  const referenceNo = order.ref_code || order.ref_no || order.reference_no || order.reference || '';
-  const statusValue = order.order_status_name || order.order_status || order.status_name || order.status || '';
-  const shipToAddressObj = {
-    country: order.country || null,
-    province: order.province || order.state || null,
-    city: order.city || order.town || null,
-    address: order.address || order.address1 || order.street || null,
-  };
+  const data = await parseSoap(await res.text());
+  if (data.ask !== 'Success' || !data.data) return null;
+  const orders = Array.isArray(data.data) ? data.data : [data.data];
+  // 找有 tracking 的那条
+  const withTracking = orders.filter(o => o.logistics_code);
+  if (!withTracking.length) return null;
+  // 取最新
+  const latest = withTracking.sort((a, b) => new Date(b.create_time||0) - new Date(a.create_time||0))[0];
   return {
-    order_number: order.order_code,
-    reference_no: referenceNo || null,
-    warehouse: 'ECCANG',
-    status: normaliseStatus(statusValue),
-    carrier: order.logistics_name || order.logistics_channel_name || null,
-    tracking_number: order.logistics_code || order.tracking_number || order.tracking_no || null,
-    created_at: order.create_time || null,
-    shipped_at: order.delivery_time || null,
-    ship_to_name: order.consignee_name || order.receiver_name || null,
-    ship_to_address: shipToAddressObj,
-    order_type: 'standard',
-    client: resolveClient(referenceNo),
+    tracking_number: latest.logistics_code || '',
+    carrier:         latest.logistics_name || '',
+    status:          latest.order_status_name || latest.order_status || '',
+    shipped_at:      latest.delivery_time || latest.create_time || null,
+    source:          'ECCANG',
   };
 }
 
 export default async function handler(req, res) {
-  if (!['POST', 'GET'].includes(req.method)) {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-  const auth = req.headers.authorization || '';
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const auth  = req.headers.authorization || '';
   const token = auth.replace('Bearer ', '');
   if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
-  if (!ECCANG_BASE_URL || !APP_TOKEN || !APP_KEY) {
-    return res.status(500).json({ error: 'ECCANG credentials not configured' });
-  }
 
-  const source = req.method === 'GET' ? req.query : (req.body || {});
-  const pageSize = Math.max(20, Math.min(200, parseInt(source.pageSize || '100', 10) || 100));
-  const maxPages = Math.max(1, Math.min(1000, parseInt(source.maxPages || '100', 10) || 100));
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const { dryRun = true, orderIds } = req.body || {};
+  const supabase = getSupabase();
 
-  try {
-    const allRows = [];
-    let p = 1;
-    let hasMore = true;
-    while (hasMore && p <= maxPages) {
-      const data = await callEccang({
-        page: p,
-        pageSize: String(pageSize),
-        warehouse_code: WAREHOUSE_CODE,
+  // 1. 拿所有没有 tracking 的 manual orders
+  let query = supabase
+    .from('orders')
+    .select('id, order_number, reference_no, tracking_number, carrier')
+    .ilike('order_number', 'MAN-%')
+    .not('reference_no', 'is', null)
+    .or('tracking_number.is.null,tracking_number.eq.');
+
+  if (orderIds?.length) query = query.in('id', orderIds);
+
+  const { data: manualOrders, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  if (!manualOrders?.length) return res.status(200).json({ success: true, message: 'No manual orders without tracking found', matches: [] });
+
+  const results = [];
+
+  for (const mo of manualOrders) {
+    if (!mo.reference_no?.trim()) {
+      results.push({ id: mo.id, order_number: mo.order_number, reference_no: mo.reference_no, status: 'no_ref' });
+      continue;
+    }
+
+    try {
+      // Try ECCANG
+      const eccangData = await fetchEccangOrderByRef(mo.reference_no.trim());
+
+      if (!eccangData?.tracking_number) {
+        results.push({ id: mo.id, order_number: mo.order_number, reference_no: mo.reference_no, status: 'no_match' });
+        continue;
+      }
+
+      if (!dryRun) {
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({
+            tracking_number: eccangData.tracking_number,
+            carrier:         eccangData.carrier,
+            status:          'shipped',
+            shipped_at:      eccangData.shipped_at || new Date().toISOString(),
+          })
+          .eq('id', mo.id);
+
+        if (updateError) {
+          results.push({ id: mo.id, order_number: mo.order_number, reference_no: mo.reference_no, status: 'error', error: updateError.message });
+          continue;
+        }
+      }
+
+      results.push({
+        id:             mo.id,
+        order_number:   mo.order_number,
+        reference_no:   mo.reference_no,
+        status:         dryRun ? 'preview' : 'synced',
+        tracking_number: eccangData.tracking_number,
+        carrier:        eccangData.carrier,
+        source:         eccangData.source,
       });
-      if (data.ask !== 'Success') break;
-      const orders = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
-      allRows.push(...orders.map(norm).filter(o => o.order_number));
-      hasMore = data.nextPage === true || data.nextPage === 'true';
-      p++;
-    }
 
-    const batchSize = 500;
-    let upserted = 0;
-    for (let i = 0; i < allRows.length; i += batchSize) {
-      const chunk = allRows.slice(i, i + batchSize);
-      const { error } = await supabase
-        .from('orders')
-        .upsert(chunk, { onConflict: 'order_number' });
-      if (error) throw new Error(error.message);
-      upserted += chunk.length;
+    } catch (e) {
+      results.push({ id: mo.id, order_number: mo.order_number, reference_no: mo.reference_no, status: 'error', error: e.message });
     }
-
-    return res.status(200).json({
-      success: true,
-      fetched: allRows.length,
-      upserted,
-      pages_fetched: p - 1,
-      page_size: pageSize,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
   }
+
+  const synced  = results.filter(r => r.status === 'synced').length;
+  const preview = results.filter(r => r.status === 'preview').length;
+  const noMatch = results.filter(r => r.status === 'no_match').length;
+  const errors  = results.filter(r => r.status === 'error').length;
+
+  return res.status(200).json({
+    success: true,
+    dryRun,
+    summary: { total: manualOrders.length, synced, preview, no_match: noMatch, errors },
+    results,
+  });
 }
