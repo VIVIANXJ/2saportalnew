@@ -1107,15 +1107,14 @@ function ManualOrderBulkUpload({ token }) {
   const [pushSS,    setPushSS]    = useState(true);
 
   const REQUIRED_COLS = ['reference_no','ship_to_name','address1','suburb','state','postcode','sku','quantity'];
-  const TEMPLATE = 'reference_no,client,ship_to_name,customer_company,customer_phone,customer_email,address1,address2,suburb,state,postcode,country,sku,product_name,quantity,price,notes
-' +
-    'REF-001,ASL,John Smith,Acme Corp,0400000001,john@example.com,123 Main St,,Sydney,NSW,2000,AU,SKU-001,Product Name,2,9.99,
-' +
-    'REF-002,ASL,Jane Doe,,0400000002,,456 High St,Unit 1,Melbourne,VIC,3000,AU,SKU-002,Another Product,1,19.99,';
+  const TEMPLATE = [
+    'reference_no,client,ship_to_name,customer_company,customer_phone,customer_email,address1,address2,suburb,state,postcode,country,sku,product_name,quantity,price,notes',
+    'REF-001,ASL,John Smith,Acme Corp,0400000001,john@example.com,123 Main St,,Sydney,NSW,2000,AU,SKU-001,Product Name,2,9.99,',
+    'REF-002,ASL,Jane Doe,,0400000002,,456 High St,Unit 1,Melbourne,VIC,3000,AU,SKU-002,Another Product,1,19.99,',
+  ].join('\n');
 
   const parseCSV = (text) => {
-    const lines  = text.trim().split('
-').filter(l => l.trim());
+    const lines  = text.trim().split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
     const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
     const rows   = [];
