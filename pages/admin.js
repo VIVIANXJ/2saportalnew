@@ -437,12 +437,12 @@ function OrderTypeUpdate({ token }) {
             const [sb, sd] = e.target.value.split(':');
             setSortBy(sb); setSortDir(sd);
           }} style={{ padding: '10px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13 }}>
-            <option value="created_at:desc">Time ↓</option>
-            <option value="created_at:asc">Time ↑</option>
-            <option value="order_number:asc">Order No. ↑</option>
-            <option value="order_number:desc">Order No. ↓</option>
-            <option value="reference_no:asc">Reference ↑</option>
-            <option value="reference_no:desc">Reference ↓</option>
+            <option value="created_at:desc">Newest First</option>
+            <option value="created_at:asc">Oldest First</option>
+            <option value="order_number:asc">Order No. A-Z</option>
+            <option value="order_number:desc">Order No. Z-A</option>
+            <option value="reference_no:asc">Reference A-Z</option>
+            <option value="reference_no:desc">Reference Z-A</option>
           </select>
         </div>
 
