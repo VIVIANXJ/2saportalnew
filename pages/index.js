@@ -298,7 +298,7 @@ export default function Portal() {
           }}>2S</div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.text, letterSpacing: '-0.01em' }}>
-              2SA Fulfillment
+              2SA Fulfilment
             </div>
             <div style={{ fontSize: 11, color: C.muted }}>Client Portal</div>
           </div>
