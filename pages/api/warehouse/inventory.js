@@ -309,12 +309,19 @@ export default async function handler(req, res) {
       .reduce((s, w) => s + (w.sellable || 0), 0),
   }));
 
+  // JDL 상태를 간결하게 - 세부 창고 오류는 숨기고 전체 상태만 표시
+  const jdlStatus = jdlResult?.success
+    ? 'ok'
+    : jdlResult?.error
+      ? 'no data available'
+      : 'not queried';
+
   return res.status(200).json({
     success: true,
     data: combined,
     warehouses: {
-      JDL:    jdlResult?.success    ? 'ok' : (jdlResult?.error    || 'not queried'),
-      ECCANG: eccangResult?.success ? 'ok' : (eccangResult?.error || 'not queried'),
+      'JD warehouse': jdlStatus,
+      '2SA warehouse': eccangResult?.success ? 'ok' : (eccangResult?.error || 'not queried'),
     },
   });
 }
