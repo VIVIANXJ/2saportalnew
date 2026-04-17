@@ -794,19 +794,18 @@ function JdlOrderSearch({ token }) {
                 </tr>
               </thead>
               <tbody>
-                {(() => {
-                  const lf = localFilter.trim().toLowerCase();
-                  const filtered = lf ? orders.filter(o => {
-                    if ((o.ship_to_name  || '').toLowerCase().includes(lf)) return true;
-                    if ((o.order_number  || '').toLowerCase().includes(lf)) return true;
-                    if ((o.reference_no  || '').toLowerCase().includes(lf)) return true;
-                    if ((o.order_items || []).some(it =>
-                      (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
-                      (it.sku || '').toLowerCase().includes(lf)
-                    )) return true;
-                    return false;
-                  }) : orders;
-                  return filtered.slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
+                {(localFilter.trim()
+                    ? orders.filter(o =>
+                        (o.ship_to_name || '').toLowerCase().includes(localFilter.toLowerCase()) ||
+                        (o.order_number || '').toLowerCase().includes(localFilter.toLowerCase()) ||
+                        (o.reference_no || '').toLowerCase().includes(localFilter.toLowerCase()) ||
+                        (o.order_items || []).some(it =>
+                          (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(localFilter.toLowerCase()) ||
+                          (it.sku || '').toLowerCase().includes(localFilter.toLowerCase())
+                        )
+                      )
+                    : orders
+                  ).slice((ordCurPage-1)*PAGE_SIZE, ordCurPage*PAGE_SIZE).map((o, i) => (
                   <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 14px', color: C.accent, fontWeight: 600, fontFamily: 'monospace', fontSize: 12, width: '16%' }}>{o.order_number || '—'}</td>
                     <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12, width: '14%' }}>{o.reference_no || '—'}</td>
@@ -853,19 +852,7 @@ function JdlOrderSearch({ token }) {
                 ))}
               </tbody>
             </table>
-            <Pagination page={ordCurPage} total={(() => {
-              const lf = localFilter.trim().toLowerCase();
-              if (!lf) return orders.length;
-              return orders.filter(o =>
-                (o.ship_to_name || '').toLowerCase().includes(lf) ||
-                (o.order_number || '').toLowerCase().includes(lf) ||
-                (o.reference_no || '').toLowerCase().includes(lf) ||
-                (o.order_items || []).some(it =>
-                  (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
-                  (it.sku || '').toLowerCase().includes(lf)
-                )
-              ).length;
-            })()} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
+            <Pagination page={ordCurPage} total={orders.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
             </>
           )}
         </div>
@@ -970,17 +957,16 @@ function OrderSearch({ token }) {
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
           {(() => {
             const lf = localFilter.trim().toLowerCase();
-            const filtered = lf ? orders.filter(o => {
-              if ((o.ship_to_name  || '').toLowerCase().includes(lf)) return true;
-              if ((o.order_number  || '').toLowerCase().includes(lf)) return true;
-              if ((o.reference_no  || '').toLowerCase().includes(lf)) return true;
-              if ((o.order_items || []).some(it =>
+            const filtered = lf ? orders.filter(o =>
+              (o.ship_to_name || '').toLowerCase().includes(lf) ||
+              (o.order_number || '').toLowerCase().includes(lf) ||
+              (o.reference_no || '').toLowerCase().includes(lf) ||
+              (o.order_items || []).some(it =>
                 (it.product_name || skuNamesGlobal[it.sku] || '').toLowerCase().includes(lf) ||
                 (it.sku || '').toLowerCase().includes(lf)
-              )) return true;
-              return false;
-            }) : orders;
-            return (<>
+              )
+            ) : orders;
+            return (
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: C.muted }}>{filtered.length !== orders.length ? `${filtered.length} / ` : ''}{totalOrders} orders</span>
             <input value={localFilter} onChange={e => { setLocalFilter(e.target.value); setOrdCurPage(1); }}
@@ -1017,8 +1003,8 @@ function OrderSearch({ token }) {
             </table>
             <Pagination page={ordCurPage} total={filtered.length} pageSize={PAGE_SIZE} onChange={setOrdCurPage} />
             </>
-          )}
-          </>); })()}
+          );
+          })()}
         </div>
       )}
     </div>
