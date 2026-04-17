@@ -76,7 +76,7 @@ function TypeTag({ type }) {
       textTransform: 'uppercase',
       border: `1px solid ${isKitting ? '#FDE68A' : '#BFDBFE'}`,
     }}>
-      {isKitting ? 'KITTING' : 'STANDARD'}
+      {isKitting ? '◈ KITTING' : '▦ STANDARD'}
     </span>
   );
 }
@@ -111,6 +111,40 @@ function Pagination({ page: currentPage, total, pageSize, onChange }) {
       </div>
     </div>
   );
+}
+
+
+// ── Carrier tracking URLs ──────────────────────────────────────
+const CARRIER_TRACKING_URLS = {
+  'auspost': 'http://auspost.com.au/track/track.html?id=',
+  'aupost':  'http://auspost.com.au/track/track.html?id=',
+  'ap std':  'http://auspost.com.au/track/track.html?id=',
+  'ap exp':  'http://auspost.com.au/track/track.html?id=',
+  'ap int':  'http://auspost.com.au/track/track.html?id=',
+  'australia post': 'http://auspost.com.au/track/track.html?id=',
+  'dhl':     'https://www.dhl.com/au-en/home/tracking.html?tracking-id=',
+  'toll':    'https://www.mytoll.com/?externalSearchQuery=',
+  'dfe':     'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  'df-':     'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  'direct freight': 'https://www.directfreight.com.au/ConsignmentStatus.aspx?lookuptype=0&consignment_no=',
+  'tnt':     'https://www.tnt.com/express/en_au/site/shipping-tools/tracking.html?searchType=con&cons=',
+  'sendle':  'https://track.sendle.com/tracking?ref=',
+  'nz post': 'https://www.nzpost.co.nz/tools/tracking',
+  'nzpost':  'https://www.nzpost.co.nz/tools/tracking',
+  'sg post': 'https://www.singpost.com/track-items?ti=',
+  'fedex':   'https://www.fedex.com/fedextrack/?trknbr=',
+  'capital': 'https://capitaltransport.com.au/',
+  'asendia': 'https://tracking.asendia.com/',
+};
+
+function getTrackingUrl(carrier, trackingNumber) {
+  if (!carrier || !trackingNumber) return null;
+  const key = carrier.toLowerCase().trim();
+  if (CARRIER_TRACKING_URLS[key]) return CARRIER_TRACKING_URLS[key] + trackingNumber;
+  for (const [k, url] of Object.entries(CARRIER_TRACKING_URLS)) {
+    if (key.startsWith(k) || key.includes(k)) return url + trackingNumber;
+  }
+  return null;
 }
 
 function StockBar({ sellable, reserved, onway }) {
@@ -261,7 +295,7 @@ export default function Portal() {
   return (
     <>
       <Head>
-        <title>2SA Fulfilment Portal</title>
+        <title>2SA Fulfillment Portal</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <style>{`
           * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -298,7 +332,7 @@ export default function Portal() {
           }}>2S</div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.text, letterSpacing: '-0.01em' }}>
-              2SA Fulfilment
+              2SA Fulfillment
             </div>
             <div style={{ fontSize: 11, color: C.muted }}>Client Portal</div>
           </div>
@@ -393,12 +427,12 @@ export default function Portal() {
                 const [sb, sd] = e.target.value.split(':');
                 setOrderSortBy(sb); setOrderSortDir(sd);
               }} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
-                <option value="created_at:desc">Newest First</option>
-                <option value="created_at:asc">Oldest First</option>
-                <option value="order_number:asc">Order No. A-Z</option>
-                <option value="order_number:desc">Order No. Z-A</option>
-                <option value="reference_no:asc">Reference A-Z</option>
-                <option value="reference_no:desc">Reference Z-A</option>
+                <option value="created_at:desc">Time ↓</option>
+                <option value="created_at:asc">Time ↑</option>
+                <option value="order_number:asc">Order No. ↑</option>
+                <option value="order_number:desc">Order No. ↓</option>
+                <option value="reference_no:asc">Reference ↑</option>
+                <option value="reference_no:desc">Reference ↓</option>
               </select>
               <select value={orderWarehouseFilter} onChange={(e) => setOrderWarehouseFilter(e.target.value)} style={{ padding: '9px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, color: C.muted }}>
                 <option value="all">All warehouses</option>
@@ -427,16 +461,19 @@ export default function Portal() {
         {tab === 'inventory' && searchedInventory && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-              {Object.entries(warehouseStatus).map(([wh, status]) => (
-                <span key={wh} style={{
-                  fontSize: 12, padding: '4px 10px', borderRadius: 20, fontWeight: 500,
-                  background: status === 'ok' ? C.successBg : C.dangerBg,
-                  color: status === 'ok' ? C.success : C.danger,
-                  border: `1px solid ${status === 'ok' ? '#A7F3D0' : '#FECACA'}`,
-                }}>
-                  {warehouseLabel(wh)}: {status}
-                </span>
-              ))}
+              {Object.entries(warehouseStatus).map(([wh, status]) => {
+                const isOk      = status === 'ok';
+                const isNoData  = status === 'no data available' || status === 'not queried';
+                const bg    = isOk ? C.successBg : isNoData ? C.warningBg : C.dangerBg;
+                const color = isOk ? C.success   : isNoData ? C.warning   : C.danger;
+                const border = isOk ? '#A7F3D0'  : isNoData ? '#FDE68A'   : '#FECACA';
+                const label = isOk ? 'ok' : isNoData ? 'no data' : status;
+                return (
+                  <span key={wh} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 20, fontWeight: 500, background: bg, color, border: `1px solid ${border}` }}>
+                    {wh}: {label}
+                  </span>
+                );
+              })}
             </div>
             {/* 库存筛选栏 */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -458,9 +495,9 @@ export default function Portal() {
                 Hide zero stock
               </label>
               <select value={invSortBy} onChange={e => { setInvSortBy(e.target.value); setInvPage(1); }} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
-                <option value="updated_desc">Recently Updated</option>
-                <option value="updated_asc">Oldest Updated</option>
-                <option value="sku_asc">SKU A-Z</option>
+                <option value="updated_desc">SKU Updated ↓</option>
+                <option value="updated_asc">SKU Updated ↑</option>
+                <option value="sku_asc">SKU ↑</option>
               </select>
             </div>
           </div>
@@ -613,7 +650,7 @@ export default function Portal() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
-                      {['Order No.', 'Reference', 'Client', 'Status', 'Ship To', 'Created'].map(h => (
+                      {['Order No.', 'Reference', 'Client', 'Status', 'Carrier', 'Tracking', 'Ship To', 'Created'].map(h => (
                         <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -625,6 +662,17 @@ export default function Portal() {
                         <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.reference_no || '—'}</td>
                         <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.client || '—'}</td>
                         <td style={{ padding: '12px 16px' }}><Badge status={order.status} /></td>
+                        <td style={{ padding: '12px 16px', color: C.muted, fontSize: 12 }}>{order.carrier || <span style={{ color: C.border }}>—</span>}</td>
+                        <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: 12 }}>
+                          {order.tracking_number ? (() => {
+                            const url = getTrackingUrl(order.carrier, order.tracking_number);
+                            return url
+                              ? <a href={url} target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: 'none', fontWeight: 500 }}>
+                                  {order.tracking_number} ↗
+                                </a>
+                              : <span style={{ color: C.text }}>{order.tracking_number}</span>;
+                          })() : <span style={{ color: C.border }}>—</span>}
+                        </td>
                         <td style={{ padding: '12px 16px', color: C.dimmed }}>{order.ship_to_name || '—'}</td>
                         <td style={{ padding: '12px 16px', color: C.muted }}>{order.created_at ? new Date(order.created_at).toLocaleDateString('en-AU') : '—'}</td>
                       </tr>
