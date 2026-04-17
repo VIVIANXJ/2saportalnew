@@ -526,11 +526,10 @@ function InventoryView({ token }) {
   const search = async () => {
     setLoading(true); setError(''); setInvCurPage(1);
     try {
-      const params = new URLSearchParams();
-      if (sku.trim()) params.set('sku', sku.trim());
+      // 不传 sku 参数 — ECCANG 只支持精确匹配，拉全量后前端 fuzzy filter
       const [eccangRes, jdlRes] = await Promise.all([
-        fetch(`/api/warehouse/eccang/inventory?${params}`),
-        fetch(`/api/warehouse/jdl/inventory?${params}`),
+        fetch(`/api/warehouse/eccang/inventory`),
+        fetch(`/api/warehouse/jdl/inventory`),
       ]);
       const eccangJson = await eccangRes.json();
       const jdlJson    = await jdlRes.json();
@@ -547,6 +546,8 @@ function InventoryView({ token }) {
 
       setItems(Object.values(skuMap));
       setSearched(true);
+      setInvSearch(sku.trim()); // sync to fuzzy filter
+      setInvCurPage(1);
     } catch (e) {
       setError(e.message);
     } finally {
