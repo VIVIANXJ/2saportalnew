@@ -95,7 +95,11 @@ export default async function handler(req, res) {
         pageSize: PAGE_SIZE,
       });
 
-      if (data.code !== 200 && data.code !== '200') {
+      console.log(`[JDL products] page ${pageNo} response:`, JSON.stringify(data).slice(0, 500));
+
+      // JDL returns code 200 or 1000 for success
+      const isSuccess = data.code === 200 || data.code === '200' || data.code === 1000 || data.code === '1000';
+      if (!isSuccess) {
         if (pageNo === 1) {
           return res.status(400).json({
             error: data.message || `JDL code ${data.code}`,
@@ -107,6 +111,7 @@ export default async function handler(req, res) {
 
       const page = data.data || {};
       const rows = page.rows || [];
+      console.log(`[JDL products] page ${pageNo}: ${rows.length} rows, totalPages: ${page.pages}`);
 
       rows.forEach(item => {
         const sku  = item.customerGoodsId || item.jdGoodsId || '';
