@@ -571,6 +571,12 @@ function InventoryView({ token }) {
     try {
       const res  = await fetch('/api/warehouse/inventory-cached');
       const json = await res.json();
+      if (json.error) {
+        // 表不存在或 Supabase 报错，显示明确错误
+        setError(`Cache error: ${json.error}`);
+        return;
+      }
+      // 有数据就显示
       if (json.data?.length > 0) {
         setItems(json.data);
         setSearched(true);
@@ -578,9 +584,9 @@ function InventoryView({ token }) {
         setLastSync(json.last_sync);
         setInvCurPage(1);
       }
+      // 缓存为空也要 setSearched(false) 以显示空状态提示
     } catch (e) {
-      // 缓存加载失败静默处理，不影响手动搜索
-      console.warn('Cache load failed:', e.message);
+      setError(`Failed to load cache: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -597,8 +603,14 @@ function InventoryView({ token }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Sync failed');
-      // 同步完成后重新读缓存
+      console.log('[Sync result]', json);
+      // 同步完成后重新读缓存，并显示结果摘要
       await loadFromCache();
+      const eccangInfo = json.eccang?.error ? `ECCANG error: ${json.eccang.error}` : `ECCANG: ${json.eccang?.count ?? 0} items`;
+      const jdlInfo    = json.jdl?.error    ? `JDL error: ${json.jdl.error}`       : `JDL: ${json.jdl?.count ?? 0} items`;
+      if (json.eccang?.error || json.jdl?.error) {
+        setError(`Sync partial — ${eccangInfo} | ${jdlInfo}`);
+      }
     } catch (e) {
       setError('Sync failed: ' + e.message);
     } finally {
