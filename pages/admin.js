@@ -1309,8 +1309,11 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
       setSaveMsg(pushSS
         ? `Saved. ShipStation: ${json.shipstation?.pushed ? '✅ pushed' : `❌ ${json.shipstation?.reason}`}`
         : '✅ Saved');
-      // Update local list
-      setOrders(prev => prev.map(o => o.id === modalOrder.id ? { ...o, ...json.data } : o));
+      // Update local list — 完整替换，确保 order_items 也更新
+      const updated = json.data;
+      setOrders(prev => prev.map(o => o.id === modalOrder.id ? updated : o));
+      // 同步更新 modal 里的数据，让 save 后继续编辑时看到最新状态
+      setModalOrder(updated);
       if (!pushSS) closeModal();
     } catch (e) {
       setSaveMsg(`❌ Error: ${e.message}`);
