@@ -540,7 +540,6 @@ function OrderTypeUpdate({ token }) {
 
 // ── Inventory View ─────────────────────────────────────────────
 function InventoryView({ token }) {
-  const [sku,        setSku]        = useState('');
   const [items,      setItems]      = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [syncing,    setSyncing]    = useState(false);
@@ -607,26 +606,7 @@ function InventoryView({ token }) {
     }
   };
 
-  const search = async () => {
-    setLoading(true); setError(''); setInvCurPage(1);
-    try {
-      // 使用合并端点（与 index.js 保持一致），该端点有完整分页循环，数据完整
-      const params = new URLSearchParams();
-      if (sku.trim()) params.set('sku', sku.trim());
-      const res  = await fetch(`/api/warehouse/inventory${params.toString() ? '?' + params : ''}`);
-      const json = await res.json();
 
-      // /api/warehouse/inventory 返回格式：{ data: [{ sku, warehouses: { ECCANG: {...}, C0000001174: {...}, ... } }] }
-      setItems(json.data || []);
-      setSearched(true);
-      setInvSearch(sku.trim()); // sync to fuzzy filter
-      setInvCurPage(1);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const exportCsv = () => {
     const qSku = invSearch.trim().toLowerCase();
@@ -714,23 +694,13 @@ function InventoryView({ token }) {
         </button>
       </div>
 
-      {/* Search bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input value={sku} onChange={e => setSku(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && search()}
-          placeholder="Filter loaded inventory by SKU..."
-          style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
-        <button onClick={search} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-          {loading ? '...' : 'Search'}
-        </button>
-      </div>
-
-      {/* Filter bar — same as client portal */}
+      {/* Filter bar — always visible, instant filter on loaded data */}
       {searched && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
           <input value={invSearch} onChange={e => { setInvSearch(e.target.value); setInvCurPage(1); }}
-            placeholder={invSearchMode === 'sku' ? 'Search by SKU...' : invSearchMode === 'name' ? 'Search by product name...' : 'Search SKU or name...'}
-            style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 200 }} />
+            autoFocus
+            placeholder={invSearchMode === 'sku' ? 'Search by SKU...' : invSearchMode === 'name' ? 'Search by product name...' : 'Search by SKU or name...'}
+            style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.accent}`, fontSize: 14, background: C.bg, color: C.text, width: 240, outline: 'none' }} />
           {[['both','SKU + Name'],['sku','SKU only'],['name','Name only']].map(([v, l]) => (
             <button key={v} onClick={() => { setInvSearchMode(v); setInvCurPage(1); }} style={{
               padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12,
@@ -770,7 +740,17 @@ function InventoryView({ token }) {
         </div>
       )}
 
+      {loading && <div style={{ padding: '40px', textAlign: 'center', color: C.muted, fontSize: 14 }}>⏳ Loading inventory...</div>}
+
       {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
+
+      {!searched && !loading && (
+        <div style={{ padding: '60px', textAlign: 'center', color: C.muted, fontSize: 14 }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+          <div>No inventory data yet.</div>
+          <div style={{ fontSize: 12, marginTop: 6 }}>Click <strong>🔄 Sync Now</strong> to load inventory from the warehouses.</div>
+        </div>
+      )}
 
       {searched && !loading && (() => {
         // Apply filters
