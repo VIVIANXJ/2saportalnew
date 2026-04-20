@@ -21,7 +21,8 @@ let productsLoaded = false;
 async function loadProducts() {
   if (productsLoaded) return productsGlobal;
   try {
-    const res = await fetch('/api/products');
+    // 드롭다운용: 전체 로드 (limit 모드)
+    const res = await fetch('/api/products?limit=2000');
     const json = await res.json();
     if (json.success) productsGlobal = json.data || [];
     productsLoaded = true;
@@ -1763,26 +1764,29 @@ function ProductManagement({ token }) {
   const [loading,   setLoading]   = useState(false);
   const [q,         setQ]         = useState('');
   const [msg,       setMsg]       = useState('');
-  const [editId,    setEditId]    = useState(null);
-  const [editData,  setEditData]  = useState({});
+  const [page,      setPage]      = useState(1);
+  const [total,     setTotal]     = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [showNew,   setShowNew]   = useState(false);
   const [newProd,   setNewProd]   = useState({ sku: '', product_name: '', description: '' });
   const [saving,    setSaving]    = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
+  const PAGE_SIZE = 100;
 
-  const load = async () => {
+  const load = async (p = 1) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ page: p, pageSize: PAGE_SIZE });
       if (q.trim()) params.set('q', q.trim());
-      if (showInactive) params.set('all', '1');
-      const res  = await fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res  = await fetch(`/api/products?${params}`);
       const json = await res.json();
       setProducts(json.data || []);
+      setTotal(json.count || 0);
+      setTotalPages(json.totalPages || 1);
+      setPage(p);
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [showInactive]);
+  useEffect(() => { load(1); }, []);
 
   const create = async () => {
     if (!newProd.sku.trim() || !newProd.product_name.trim()) { setMsg('❌ SKU and name required'); return; }
@@ -1791,90 +1795,71 @@ function ProductManagement({ token }) {
       const res  = await fetch('/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(newProd),
+        body: JSON.stringify({ ...newProd, source: 'MANUAL' }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
-      setMsg('✅ Product created');
+      setMsg('✅ Product added');
       setShowNew(false);
       setNewProd({ sku: '', product_name: '', description: '' });
-      productsLoaded = false; // invalidate cache
-      load();
-    } catch (e) { setMsg(`❌ ${e.message}`); }
-    finally { setSaving(false); }
-  };
-
-  const save = async (id) => {
-    setSaving(true);
-    try {
-      const res  = await fetch(`/api/products?id=${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(editData),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error);
-      setMsg('✅ Saved');
-      setEditId(null);
       productsLoaded = false;
-      load();
+      load(1);
     } catch (e) { setMsg(`❌ ${e.message}`); }
     finally { setSaving(false); }
-  };
-
-  const deactivate = async (id, sku) => {
-    if (!confirm(`Deactivate product "${sku}"?`)) return;
-    await fetch(`/api/products?id=${id}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-    });
-    setMsg(`✅ "${sku}" deactivated`);
-    productsLoaded = false;
-    load();
   };
 
   const iStyle = { padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text };
+
+  const sourceTag = (source) => {
+    if (!source) return null;
+    const s = (source || '').toUpperCase();
+    const isEccang = s.includes('ECCANG') || s === '2SA';
+    const isJdl    = s.includes('JDL');
+    const isManual = s === 'MANUAL';
+    if (isEccang && isJdl) return (
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: '#F0FDF4', color: '#059669', border: '1px solid #A7F3D0' }}>2SA + JDL</span>
+    );
+    if (isEccang) return (
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>2SA</span>
+    );
+    if (isJdl) return (
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: C.accentDim, color: C.accent, border: '1px solid #BFDBFE' }}>JDL</span>
+    );
+    if (isManual) return (
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: C.surfaceAlt, color: C.muted, border: `1px solid ${C.border}` }}>Manual</span>
+    );
+    return <span style={{ fontSize: 11, color: C.muted }}>{source}</span>;
+  };
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Product Management</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
-            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
-            Show inactive
-          </label>
           <button onClick={async () => {
-            if (!confirm('Preview products from ECCANG first?')) return;
             setMsg('Fetching from ECCANG...');
             try {
-              const r  = await fetch('/api/products/import-from-eccang', {
+              const r = await fetch('/api/products/import-from-eccang', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ dryRun: true }),
               });
               const j = await r.json();
-              if (!j.success) throw new Error(j.error);
+              if (!j.success) throw new Error(j.error || j.message || JSON.stringify(j));
               const preview = (j.sample || []).map(p => `${p.sku}: ${p.product_name || '(no name)'}`).join('\n');
-              if (!confirm(`Found ${j.count} products from ECCANG:\n\n${preview}\n\nImport all?`)) {
-                setMsg('Import cancelled.');
-                return;
-              }
+              if (!confirm(`Found ${j.count} products from ECCANG:\n\n${preview}\n\nImport all?`)) { setMsg('Cancelled.'); return; }
               const r2 = await fetch('/api/products/import-from-eccang', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ dryRun: false }),
               });
               const j2 = await r2.json();
-              if (!j2.success) throw new Error(j2.error);
+              if (!j2.success) throw new Error(j2.error || j2.message || JSON.stringify(j2));
               setMsg(`✅ ${j2.message}`);
-              productsLoaded = false;
-              load();
+              productsLoaded = false; load(1);
             } catch(e) { setMsg(`❌ ${e.message}`); }
-          }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-            📦 Import from ECCANG
-          </button>
-          <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-            + Add Product
+          }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+            📦 Import ECCANG
           </button>
           <button onClick={async () => {
             setMsg('Fetching from JDL...');
@@ -1885,25 +1870,25 @@ function ProductManagement({ token }) {
                 body: JSON.stringify({ dryRun: true }),
               });
               const j = await r.json();
-              if (!j.success) throw new Error(j.error || JSON.stringify(j.raw || {}));
+              if (!j.success) throw new Error(j.error || j.message || JSON.stringify(j));
               const preview = (j.sample || []).map(p => `${p.sku}: ${p.product_name || '(no name)'}`).join('\n');
-              if (!confirm(`Found ${j.count} products from JDL:\n\n${preview}\n\nImport all?`)) {
-                setMsg('Import cancelled.');
-                return;
-              }
+              if (!confirm(`Found ${j.count} products from JDL:\n\n${preview}\n\nImport all?`)) { setMsg('Cancelled.'); return; }
               const r2 = await fetch('/api/products/import-from-jdl', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ dryRun: false }),
               });
               const j2 = await r2.json();
-              if (!j2.success) throw new Error(j2.error);
+              if (!j2.success) throw new Error(j2.error || j2.message || JSON.stringify(j2));
               setMsg(`✅ ${j2.message}`);
-              productsLoaded = false;
-              load();
+              productsLoaded = false; load(1);
             } catch(e) { setMsg(`❌ ${e.message}`); }
-          }} style={{ background: '#0369A1', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-            🚢 Import from JDL
+          }} style={{ background: '#0369A1', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+            🚢 Import JDL
+          </button>
+          <button onClick={() => { setShowNew(true); setMsg(''); }}
+            style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+            + Add Product
           </button>
         </div>
       </div>
@@ -1916,27 +1901,24 @@ function ProductManagement({ token }) {
 
       {/* Search */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load()}
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
           placeholder="Search SKU or name..."
           style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
-        <button onClick={load} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
+        <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
       </div>
 
       {/* New product form */}
       {showNew && (
         <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 12 }}>New Product</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 12 }}>Add Product</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr', gap: 10, marginBottom: 12 }}>
-            <input value={newProd.sku} onChange={e => setNewProd(p => ({ ...p, sku: e.target.value }))}
-              placeholder="SKU *" style={iStyle} />
-            <input value={newProd.product_name} onChange={e => setNewProd(p => ({ ...p, product_name: e.target.value }))}
-              placeholder="Product Name *" style={iStyle} />
-            <input value={newProd.description} onChange={e => setNewProd(p => ({ ...p, description: e.target.value }))}
-              placeholder="Description" style={iStyle} />
+            <input value={newProd.sku} onChange={e => setNewProd(p => ({ ...p, sku: e.target.value }))} placeholder="SKU *" style={iStyle} />
+            <input value={newProd.product_name} onChange={e => setNewProd(p => ({ ...p, product_name: e.target.value }))} placeholder="Product Name *" style={iStyle} />
+            <input value={newProd.description} onChange={e => setNewProd(p => ({ ...p, description: e.target.value }))} placeholder="Description" style={iStyle} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={create} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-              {saving ? 'Saving...' : 'Create'}
+              {saving ? 'Saving...' : 'Add'}
             </button>
             <button onClick={() => { setShowNew(false); setMsg(''); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
           </div>
@@ -1945,73 +1927,36 @@ function ProductManagement({ token }) {
 
       {/* Products table */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ padding: '8px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-          {products.length} products
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+          {total} products · page {page} of {totalPages}
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
         ) : products.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No products found</div>
+          <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No products found. Import from ECCANG or JDL to get started.</div>
         ) : (
+          <>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['SKU', 'Name', 'Description', 'Status', ''].map(h => (
+                {['SKU', 'Product Name', 'Description', 'Location'].map(h => (
                   <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {products.map(p => (
-                editId === p.id ? (
-                  <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, background: '#F0F7FF' }}>
-                    <td style={{ padding: '6px 10px' }}>
-                      <input value={editData.sku} onChange={e => setEditData(d => ({ ...d, sku: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
-                    </td>
-                    <td style={{ padding: '6px 10px' }}>
-                      <input value={editData.product_name} onChange={e => setEditData(d => ({ ...d, product_name: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
-                    </td>
-                    <td style={{ padding: '6px 10px' }}>
-                      <input value={editData.description || ''} onChange={e => setEditData(d => ({ ...d, description: e.target.value }))} style={{ ...iStyle, width: '100%' }} />
-                    </td>
-                    <td style={{ padding: '6px 10px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={editData.active !== false} onChange={e => setEditData(d => ({ ...d, active: e.target.checked }))} />
-                        Active
-                      </label>
-                    </td>
-                    <td style={{ padding: '6px 10px' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button onClick={() => save(p.id)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Save</button>
-                        <button onClick={() => setEditId(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>Cancel</button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, opacity: p.active === false ? 0.5 : 1 }}>
-                    <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{p.sku}</td>
-                    <td style={{ padding: '9px 14px', color: C.text, fontSize: 13 }}>{p.product_name}</td>
-                    <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.description || '—'}</td>
-                    <td style={{ padding: '9px 14px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: p.active !== false ? C.successBg : C.surfaceAlt, color: p.active !== false ? C.success : C.muted }}>
-                        {p.active !== false ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '9px 14px' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button onClick={() => { setEditId(p.id); setEditData({ sku: p.sku, product_name: p.product_name, description: p.description || '', active: p.active !== false }); setMsg(''); }}
-                          style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
-                        {p.active !== false && (
-                          <button onClick={() => deactivate(p.id, p.sku)}
-                            style={{ background: C.dangerBg, color: C.danger, border: `1px solid #FECACA`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Remove</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
+                <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{p.sku}</td>
+                  <td style={{ padding: '9px 14px', color: C.text }}>{p.product_name}</td>
+                  <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.description || '—'}</td>
+                  <td style={{ padding: '9px 14px' }}>{sourceTag(p.source)}</td>
+                </tr>
               ))}
             </tbody>
           </table>
+          <Pagination page={page} total={total} pageSize={PAGE_SIZE} onChange={p => load(p)} />
+          </>
         )}
       </div>
     </div>
