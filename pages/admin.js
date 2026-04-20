@@ -1344,8 +1344,8 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin }) {
   const REQUIRED_COLS = ['reference_no','ship_to_name','address1','suburb','state','postcode','sku','quantity'];
   const TEMPLATE = [
     'reference_no,client,ship_to_name,customer_company,customer_phone,customer_email,address1,address2,suburb,state,postcode,country,sku,product_name,quantity,price,notes',
-    'REF-001,ASL,John Smith,Acme Corp,0400000001,john@example.com,123 Main St,,Sydney,NSW,2000,AU,SKU-001,Product Name,2,9.99,',
-    'REF-002,ASL,Jane Doe,,0400000002,,456 High St,Unit 1,Melbourne,VIC,3000,AU,SKU-002,Another Product,1,19.99,',
+    'REF-001,Project,John Smith,Acme Corp,0400000001,john@example.com,123 Main St,,Sydney,NSW,2000,AU,SKU-001,Product Name,2,9.99,',
+    'REF-002,Project,Jane Doe,,0400000002,,456 High St,Unit 1,Melbourne,VIC,3000,AU,SKU-002,Another Product,1,19.99,',
   ].join('\n');
 
   const parseCSV = (text) => {
@@ -1370,7 +1370,7 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin }) {
       if (!map[key]) {
         map[key] = {
           reference_no:     row.reference_no,
-          client:           row.client || 'ASL',
+          client:           row.client || 'Project',
           ship_to_name:     row.ship_to_name,
           customer_company: row.customer_company || '',
           customer_phone:   row.customer_phone   || '',
@@ -1621,7 +1621,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
     reference_no: '',
-    client: 'ASL',
+    client: 'Project',
     ship_to_name: '',
     customer_company: '',
     country: 'AU',
@@ -1717,9 +1717,9 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
             />
           <input value={form.reference_no} onChange={e => setField('reference_no', e.target.value)} placeholder="Reference No." style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
-          <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }}>
-            <option value="ASL">ASL</option>
-            <option value="CCEP">CCEP</option>
+          <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
+            <option value="Project">Project</option>
+            <option value="Warehouse">Warehouse</option>
           </select>
           <select value={form.country} onChange={e => setField('country', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
             <option value="AU">AU — Australia</option>
@@ -1752,7 +1752,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Order Line Items *</div>
         {form.items.map((it, idx) => (
-          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.6fr 0.7fr 0.4fr', gap: 8, marginBottom: 8 }}>
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.4fr', gap: 8, marginBottom: 8 }}>
             <SkuDropdown
               sku={it.sku}
               productName={it.product_name}
@@ -1762,7 +1762,6 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
               }}
             />
             <input value={it.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} placeholder="Qty *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
-            <input value={it.price} onChange={e => setItem(idx, 'price', e.target.value)} placeholder="Price" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
             <button onClick={() => removeItem(idx)} disabled={form.items.length === 1} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer' }}>-</button>
           </div>
         ))}
