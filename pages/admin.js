@@ -543,6 +543,7 @@ function InventoryView({ token }) {
   const [sku,        setSku]        = useState('');
   const [items,      setItems]      = useState([]);
   const [loading,    setLoading]    = useState(false);
+  const [syncing,    setSyncing]    = useState(false);
   const [error,      setError]      = useState('');
   const [searched,   setSearched]   = useState(false);
   const [invCurPage, setInvCurPage] = useState(1);
@@ -551,12 +552,59 @@ function InventoryView({ token }) {
   const [invSearch,  setInvSearch]  = useState('');
   const [invSortBy,  setInvSortBy]  = useState('sku_asc');
   const [skuNames,   setSkuNames]   = useState({});
+  const [lastSync,   setLastSync]   = useState(null);   // { synced_at, sku_count, status }
+  const [fromCache,  setFromCache]  = useState(false);
   const PAGE_SIZE = 100;
 
   // Load SKU names (uses global cache)
   useEffect(() => {
     loadSkuNames().then(names => setSkuNames(names));
   }, []);
+
+  // Auto-load from cache on mount
+  useEffect(() => {
+    loadFromCache();
+  }, []);
+
+  const loadFromCache = async () => {
+    setLoading(true); setError('');
+    try {
+      const res  = await fetch('/api/warehouse/inventory-cached');
+      const json = await res.json();
+      if (json.data?.length > 0) {
+        setItems(json.data);
+        setSearched(true);
+        setFromCache(json.from_cache);
+        setLastSync(json.last_sync);
+        setInvCurPage(1);
+      }
+    } catch (e) {
+      // 缓存加载失败静默处理，不影响手动搜索
+      console.warn('Cache load failed:', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 手动触发 cron 同步（刷新缓存）
+  const triggerSync = async () => {
+    if (!confirm('Manually sync inventory from warehouses? This may take 30–60 seconds.')) return;
+    setSyncing(true); setError('');
+    try {
+      const res  = await fetch('/api/cron/sync-inventory', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Sync failed');
+      // 同步完成后重新读缓存
+      await loadFromCache();
+    } catch (e) {
+      setError('Sync failed: ' + e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const search = async () => {
     setLoading(true); setError(''); setInvCurPage(1);
@@ -633,15 +681,41 @@ function InventoryView({ token }) {
     URL.revokeObjectURL(url);
   };
 
+  // Format sync time for display
+  const fmtSync = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return d.toLocaleString('en-AU', { timeZone: 'Australia/Sydney', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Inventory — All Warehouses</h2>
+      {/* Header row: title + sync status + sync button */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Inventory — All Warehouses</h2>
+        {lastSync && (
+          <span style={{ fontSize: 12, color: C.muted, background: C.surfaceAlt, padding: '3px 10px', borderRadius: 20 }}>
+            🕐 Last synced: {fmtSync(lastSync.synced_at)} · {lastSync.sku_count} SKUs
+            {lastSync.status !== 'success' && <span style={{ color: C.warning }}> · {lastSync.status}</span>}
+          </span>
+        )}
+        {fromCache && (
+          <span style={{ fontSize: 11, color: C.muted, marginRight: 4 }}>Auto-refreshes nightly at 2 AM AEST</span>
+        )}
+        <button onClick={triggerSync} disabled={syncing} style={{
+          marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, cursor: syncing ? 'not-allowed' : 'pointer',
+          fontSize: 13, border: `1px solid ${C.border}`, background: C.surface, color: C.text,
+          fontWeight: 600, opacity: syncing ? 0.6 : 1,
+        }}>
+          {syncing ? '⏳ Syncing...' : '🔄 Sync Now'}
+        </button>
+      </div>
 
       {/* Search bar */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <input value={sku} onChange={e => setSku(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search()}
-          placeholder="Search by SKU (leave blank for all)..."
+          placeholder="Filter loaded inventory by SKU..."
           style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
         <button onClick={search} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
@@ -1121,13 +1195,16 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
   const [loading,   setLoading]   = useState(false);
   const [q,         setQ]         = useState('');
   const [searched,  setSearched]  = useState(false);
-  const [editId,    setEditId]    = useState(null);
-  const [editData,  setEditData]  = useState({});
   const [saving,    setSaving]    = useState(false);
   const [saveMsg,   setSaveMsg]   = useState('');
   const [page,      setPage]      = useState(1);
   const [total,     setTotal]     = useState(0);
   const PAGE_SIZE = 50;
+
+  // ── Modal state ───────────────────────────────────────────────
+  const [modalOrder, setModalOrder] = useState(null); // full order object
+  const [modalData,  setModalData]  = useState({});   // editable fields
+  const emptyItem = { sku: '', product_name: '', quantity: 1 };
 
   const load = async (p = 1) => {
     setLoading(true); setSearched(true);
@@ -1146,43 +1223,97 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
     }
   };
 
-  const startEdit = (order) => {
-    setEditId(order.id);
-    setEditData({
-      reference_no:    order.reference_no    || '',
-      tracking_number: order.tracking_number || '',
-      carrier:         order.carrier         || '',
-      status:          order.status          || 'pending',
-      notes:           order.notes           || '',
+  // Open modal with full order data
+  const openModal = (order) => {
+    const addr = order.ship_to_address || {};
+    setModalOrder(order);
+    setModalData({
+      reference_no:     order.reference_no     || '',
+      status:           order.status           || 'pending',
+      tracking_number:  order.tracking_number  || '',
+      carrier:          order.carrier          || '',
+      notes:            order.notes            || '',
+      ship_to_name:     order.ship_to_name     || '',
+      customer_company: order.customer_company || '',
+      customer_phone:   order.customer_phone   || '',
+      customer_email:   order.customer_email   || '',
+      address1:  addr.address1 || addr.street1 || '',
+      address2:  addr.address2 || addr.street2 || '',
+      suburb:    addr.suburb   || addr.city    || '',
+      state:     addr.state    || '',
+      postcode:  addr.postcode || addr.postalCode || '',
+      country:   addr.country  || 'AU',
+      items: (order.order_items || []).map(it => ({
+        sku:          it.sku          || '',
+        product_name: it.product_name || '',
+        quantity:     it.quantity     || 1,
+      })),
     });
     setSaveMsg('');
   };
 
-  const cancelEdit = () => { setEditId(null); setEditData({}); setSaveMsg(''); };
+  const closeModal = () => { setModalOrder(null); setModalData({}); setSaveMsg(''); };
 
-  const save = async (id, pushSS = false) => {
+  const setField = (k, v) => setModalData(p => ({ ...p, [k]: v }));
+
+  const setItem = (i, k, v) => setModalData(p => {
+    const items = [...p.items];
+    items[i] = { ...items[i], [k]: v };
+    return { ...p, items };
+  });
+
+  const addItem = () => setModalData(p => ({ ...p, items: [...p.items, { ...emptyItem }] }));
+
+  const removeItem = (i) => setModalData(p => ({
+    ...p,
+    items: p.items.filter((_, idx) => idx !== i),
+  }));
+
+  const save = async (pushSS = false) => {
     setSaving(true); setSaveMsg('');
     try {
-      const res  = await fetch(`/api/orders/manual?id=${id}`, {
+      const payload = {
+        reference_no:    modalData.reference_no,
+        status:          modalData.status,
+        tracking_number: modalData.tracking_number,
+        carrier:         modalData.carrier,
+        notes:           modalData.notes,
+        ship_to_name:    modalData.ship_to_name,
+        customer_company: modalData.customer_company,
+        customer_phone:  modalData.customer_phone,
+        customer_email:  modalData.customer_email,
+        ship_to_address: {
+          address1: modalData.address1,
+          address2: modalData.address2,
+          suburb:   modalData.suburb,
+          state:    modalData.state,
+          postcode: modalData.postcode,
+          country:  modalData.country || 'AU',
+        },
+        items: modalData.items.filter(it => it.sku && Number(it.quantity) > 0),
+        push_to_shipstation: pushSS,
+      };
+      const res  = await fetch(`/api/orders/manual?id=${modalOrder.id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ ...editData, push_to_shipstation: pushSS }),
+        body:    JSON.stringify(payload),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Save failed');
       setSaveMsg(pushSS
         ? `Saved. ShipStation: ${json.shipstation?.pushed ? '✅ pushed' : `❌ ${json.shipstation?.reason}`}`
-        : 'Saved ✅');
-      setOrders(prev => prev.map(o => o.id === id ? { ...o, ...json.data } : o));
-      setEditId(null);
+        : '✅ Saved');
+      // Update local list
+      setOrders(prev => prev.map(o => o.id === modalOrder.id ? { ...o, ...json.data } : o));
+      if (!pushSS) closeModal();
     } catch (e) {
-      setSaveMsg(`Error: ${e.message}`);
+      setSaveMsg(`❌ Error: ${e.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  const inputStyle = { padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text, width: '100%' };
+  const inp = { padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text, width: '100%', boxSizing: 'border-box' };
   const statusOpts = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
 
   return (
@@ -1190,10 +1321,10 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Manual Orders</h2>
 
       {/* Search bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
         <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
-          placeholder="Search order number or reference..."
-          style={{ flex: 1, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+          placeholder="Search by order no., reference, recipient name, or product SKU/name..."
+          style={{ flex: 1, minWidth: 260, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
         </button>
@@ -1215,7 +1346,6 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
         {canDo('manual_sync_eccang') && <button onClick={async () => {
           setSaveMsg('Previewing ECCANG matches...');
           try {
-            // First dry run to preview
             const r = await fetch('/api/orders/sync-from-eccang', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1223,16 +1353,9 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
             });
             const j = await r.json();
             const matches = (j.results || []).filter(r => r.status === 'preview');
-            if (matches.length === 0) {
-              setSaveMsg('No matching ECCANG orders found for any manual order without tracking.');
-              return;
-            }
+            if (matches.length === 0) { setSaveMsg('No matching ECCANG orders found for any manual order without tracking.'); return; }
             const preview = matches.map(m => `${m.order_number} (${m.reference_no}) → ${m.tracking_number} via ${m.carrier}`).join('\n');
-            if (!confirm(`Found ${matches.length} matches:\n\n${preview}\n\nConfirm sync?`)) {
-              setSaveMsg('Sync cancelled.');
-              return;
-            }
-            // Actual sync
+            if (!confirm(`Found ${matches.length} matches:\n\n${preview}\n\nConfirm sync?`)) { setSaveMsg('Sync cancelled.'); return; }
             const r2 = await fetch('/api/orders/sync-from-eccang', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -1247,8 +1370,8 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
         </button>}
       </div>
 
-      {saveMsg && (
-        <div style={{ background: saveMsg.includes('Error') ? C.dangerBg : C.successBg, border: `1px solid ${saveMsg.includes('Error') ? '#FECACA' : '#A7F3D0'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: saveMsg.includes('Error') ? C.danger : C.success, marginBottom: 16 }}>
+      {saveMsg && !modalOrder && (
+        <div style={{ background: saveMsg.includes('❌') ? C.dangerBg : C.successBg, border: `1px solid ${saveMsg.includes('❌') ? '#FECACA' : '#A7F3D0'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: saveMsg.includes('❌') ? C.danger : C.success, marginBottom: 16 }}>
           {saveMsg}
         </div>
       )}
@@ -1257,6 +1380,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
             {total} manual order{total !== 1 ? 's' : ''}
+            {q && <span style={{ marginLeft: 8, color: C.accent }}>— filtered by "{q}"</span>}
           </div>
 
           {orders.length === 0 ? (
@@ -1265,106 +1389,54 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: C.surfaceAlt }}>
-                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Carrier', 'Tracking', 'Created', 'Actions'].map(h => (
+                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Products', 'Tracking', 'Created', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {orders.map(order => (
-                  editId === order.id ? (
-                    // ── Edit row ──
-                    <tr key={order.id} style={{ background: '#F0F7FF', borderBottom: `2px solid ${C.accent}` }}>
-                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input value={editData.reference_no} onChange={e => setEditData(p => ({ ...p, reference_no: e.target.value }))} style={inputStyle} placeholder="Reference No." />
-                      </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <select value={editData.status} onChange={e => setEditData(p => ({ ...p, status: e.target.value }))} style={{ ...inputStyle }}>
-                          {statusOpts.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </td>
-                      <td style={{ padding: '6px 8px', color: C.muted, fontSize: 12 }}>{order.ship_to_name}</td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input value={editData.carrier} onChange={e => setEditData(p => ({ ...p, carrier: e.target.value }))} style={inputStyle} placeholder="Carrier" />
-                      </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input value={editData.tracking_number} onChange={e => setEditData(p => ({ ...p, tracking_number: e.target.value }))} style={inputStyle} placeholder="Tracking No." />
-                      </td>
-                      <td style={{ padding: '6px 8px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <button onClick={() => save(order.id, false)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-                            {saving ? '...' : 'Save'}
-                          </button>
-                          <button onClick={() => save(order.id, true)} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-                            Save + Push SS
-                          </button>
-                          <button onClick={cancelEdit} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
-                            Cancel
-                          </button>
+                  <tr key={order.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                    <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
+                    <td style={{ padding: '10px 12px', color: C.muted, fontSize: 12 }}>{order.reference_no || <span style={{ color: C.border }}>—</span>}</td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: order.status === 'shipped' ? C.successBg : order.status === 'pending' ? C.warningBg : C.surfaceAlt, color: order.status === 'shipped' ? C.success : order.status === 'pending' ? C.warning : C.muted }}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, color: C.text }}>{order.ship_to_name}</td>
+                    <td style={{ padding: '10px 12px', fontSize: 11, color: C.muted, maxWidth: 160 }}>
+                      {(order.order_items || []).slice(0, 2).map((it, i) => (
+                        <div key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ fontFamily: 'monospace', color: C.accent }}>{it.sku}</span> ×{it.quantity}
                         </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    // ── Read row ──
-                    <tr key={order.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                      <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
-                      <td style={{ padding: '10px 12px', color: C.muted, fontSize: 12 }}>{order.reference_no || <span style={{ color: C.border }}>—</span>}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: order.status === 'shipped' ? C.successBg : order.status === 'pending' ? C.warningBg : C.surfaceAlt, color: order.status === 'shipped' ? C.success : order.status === 'pending' ? C.warning : C.muted }}>
-                          {order.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.text }}>{order.ship_to_name}</td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.carrier || <span style={{ color: C.border }}>—</span>}</td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace' }}>
-                        {order.tracking_number ? (() => {
-                          const url = getTrackingUrl(order.carrier, order.tracking_number);
-                          return url
-                            ? <a href={url} target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: 'none', fontWeight: 500 }} title="Track shipment">
-                                {order.tracking_number} ↗
-                              </a>
-                            : <span style={{ color: C.muted }}>{order.tracking_number}</span>;
-                        })() : <span style={{ color: C.border }}>—</span>}
-                      </td>
-                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {canDo('manual_edit') && (
-                          <button onClick={() => startEdit(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                            ✏️ Edit
-                          </button>
-                          )}
-                          {canDo('manual_edit') && <button onClick={() => {
-                            const tracking = prompt(`Enter tracking number for ${order.order_number}:`);
-                            if (!tracking?.trim()) return;
-                            const carrier = prompt('Carrier (e.g. AusPost, FedEx):') || '';
-                            fetch(`/api/orders/manual?id=${order.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                              body: JSON.stringify({ tracking_number: tracking.trim(), carrier, status: 'shipped' }),
-                            }).then(r => r.json()).then(j => {
-                              if (j.success) {
-                                setSaveMsg(`✅ Tracking updated: ${tracking.trim()}`);
-                                setOrders(prev => prev.map(o => o.id === order.id ? { ...o, tracking_number: tracking.trim(), carrier, status: 'shipped' } : o));
-                              } else {
-                                setSaveMsg(`❌ ${j.error}`);
-                              }
-                            });
-                          }} style={{ background: '#F0FDF4', color: '#059669', border: `1px solid #A7F3D0`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                            🚚 Tracking
-                          </button>}
-                        </div>
-                      </td>
-                    </tr>
-                  )
+                      ))}
+                      {(order.order_items || []).length > 2 && (
+                        <div style={{ color: C.muted }}>+{(order.order_items || []).length - 2} more</div>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'monospace' }}>
+                      {order.tracking_number ? (() => {
+                        const url = getTrackingUrl(order.carrier, order.tracking_number);
+                        return url
+                          ? <a href={url} target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: 'none', fontWeight: 500 }}>{order.tracking_number} ↗</a>
+                          : <span style={{ color: C.muted }}>{order.tracking_number}</span>;
+                      })() : <span style={{ color: C.border }}>—</span>}
+                    </td>
+                    <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
+                    <td style={{ padding: '10px 12px' }}>
+                      {canDo('manual_edit') && (
+                        <button onClick={() => openModal(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          ✏️ Edit
+                        </button>
+                      )}
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           )}
 
-          {/* Pagination */}
           {total > PAGE_SIZE && (
             <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${C.border}`, alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: C.muted }}>{((page-1)*PAGE_SIZE)+1}–{Math.min(page*PAGE_SIZE, total)} of {total}</span>
@@ -1374,6 +1446,174 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Edit Modal ───────────────────────────────────────── */}
+      {modalOrder && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 40, paddingBottom: 40, overflowY: 'auto' }}>
+          {/* backdrop */}
+          <div onClick={closeModal} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)' }} />
+
+          <div style={{ position: 'relative', zIndex: 1001, background: C.bg, borderRadius: 14, width: '100%', maxWidth: 720, margin: '0 20px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            {/* Modal header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px', borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Edit Order</div>
+                <div style={{ fontSize: 12, color: C.muted, fontFamily: 'monospace', marginTop: 2 }}>{modalOrder.order_number}</div>
+              </div>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: C.muted, lineHeight: 1 }}>✕</button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 140px)' }}>
+
+              {/* ── Section: Order Info ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Order Info</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No.</span>
+                    <input value={modalData.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Status</span>
+                    <select value={modalData.status} onChange={e => setField('status', e.target.value)} style={inp}>
+                      {statusOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Carrier</span>
+                    <input value={modalData.carrier} onChange={e => setField('carrier', e.target.value)} style={inp} placeholder="e.g. AusPost, FedEx" />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Tracking Number</span>
+                    <input value={modalData.tracking_number} onChange={e => setField('tracking_number', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Notes</span>
+                    <textarea value={modalData.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
+                  </label>
+                </div>
+              </div>
+
+              {/* ── Section: Recipient ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Recipient</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Name *</span>
+                    <input value={modalData.ship_to_name} onChange={e => setField('ship_to_name', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Company</span>
+                    <input value={modalData.customer_company} onChange={e => setField('customer_company', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Phone</span>
+                    <input value={modalData.customer_phone} onChange={e => setField('customer_phone', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Email</span>
+                    <input value={modalData.customer_email} onChange={e => setField('customer_email', e.target.value)} style={inp} />
+                  </label>
+                </div>
+              </div>
+
+              {/* ── Section: Address ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Delivery Address</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Address Line 1 *</span>
+                    <input value={modalData.address1} onChange={e => setField('address1', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Address Line 2</span>
+                    <input value={modalData.address2} onChange={e => setField('address2', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Suburb *</span>
+                    <input value={modalData.suburb} onChange={e => setField('suburb', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>State *</span>
+                    <input value={modalData.state} onChange={e => setField('state', e.target.value)} style={inp} placeholder="e.g. NSW" />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Postcode *</span>
+                    <input value={modalData.postcode} onChange={e => setField('postcode', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Country</span>
+                    <input value={modalData.country} onChange={e => setField('country', e.target.value)} style={inp} placeholder="AU" />
+                  </label>
+                </div>
+              </div>
+
+              {/* ── Section: Products ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Products</div>
+                  <button onClick={addItem} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    + Add Item
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {modalData.items?.map((item, i) => (
+                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 3fr 80px 32px', gap: 8, alignItems: 'center', background: C.surface, borderRadius: 8, padding: '10px 12px', border: `1px solid ${C.border}` }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 3 }}>SKU</div>
+                        <SkuDropdown
+                          sku={item.sku}
+                          productName={item.product_name}
+                          onChange={(sku, name) => {
+                            setItem(i, 'sku', sku);
+                            if (name) setItem(i, 'product_name', name);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 3 }}>Product Name</div>
+                        <input value={item.product_name} onChange={e => setItem(i, 'product_name', e.target.value)}
+                          style={{ ...inp, fontSize: 12 }} placeholder="Product name" />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 3 }}>Qty</div>
+                        <input type="number" min={1} value={item.quantity} onChange={e => setItem(i, 'quantity', parseInt(e.target.value) || 1)}
+                          style={{ ...inp, fontSize: 13, textAlign: 'center' }} />
+                      </div>
+                      <button onClick={() => removeItem(i)} style={{ background: 'none', border: 'none', color: C.danger, fontSize: 16, cursor: 'pointer', padding: 4, marginTop: 16 }}>✕</button>
+                    </div>
+                  ))}
+                  {(!modalData.items || modalData.items.length === 0) && (
+                    <div style={{ textAlign: 'center', color: C.muted, fontSize: 13, padding: '20px 0' }}>No items — click + Add Item</div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Save message ── */}
+              {saveMsg && (
+                <div style={{ background: saveMsg.includes('❌') ? C.dangerBg : C.successBg, border: `1px solid ${saveMsg.includes('❌') ? '#FECACA' : '#A7F3D0'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: saveMsg.includes('❌') ? C.danger : C.success, marginBottom: 16 }}>
+                  {saveMsg}
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div style={{ display: 'flex', gap: 8, padding: '16px 24px', borderTop: `1px solid ${C.border}`, background: C.surface, justifyContent: 'flex-end' }}>
+              <button onClick={closeModal} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+                Cancel
+              </button>
+              {canDo('manual_push_ss') && (
+                <button onClick={() => save(true)} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
+                  {saving ? '...' : 'Save + Push SS'}
+                </button>
+              )}
+              <button onClick={() => save(false)} disabled={saving} style={{ background: C.success, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
+                {saving ? 'Saving...' : '✓ Save'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
