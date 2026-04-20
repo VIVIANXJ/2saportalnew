@@ -1065,7 +1065,8 @@ function getTrackingUrl(carrier, trackingNumber) {
 }
 
 // ── Manual Order Management ────────────────────────────────────
-function ManualOrderManage({ token }) {
+function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
+  const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
   const [orders,    setOrders]    = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [q,         setQ]         = useState('');
@@ -1146,7 +1147,7 @@ function ManualOrderManage({ token }) {
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
           {loading ? '...' : 'Search'}
         </button>
-        <button onClick={async () => {
+        {canDo('manual_sync_ss') && <button onClick={async () => {
           setSaveMsg('Syncing from ShipStation...');
           try {
             const r = await fetch('/api/shipstation/sync-tracking', {
@@ -1160,8 +1161,8 @@ function ManualOrderManage({ token }) {
           } catch(e) { setSaveMsg(`Sync error: ${e.message}`); }
         }} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           🔄 Sync from SS
-        </button>
-        <button onClick={async () => {
+        </button>}
+        {canDo('manual_sync_eccang') && <button onClick={async () => {
           setSaveMsg('Previewing ECCANG matches...');
           try {
             // First dry run to preview
@@ -1193,7 +1194,7 @@ function ManualOrderManage({ token }) {
           } catch(e) { setSaveMsg(`Sync error: ${e.message}`); }
         }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           📦 Sync from ECCANG
-        </button>
+        </button>}
       </div>
 
       {saveMsg && (
@@ -1280,10 +1281,12 @@ function ManualOrderManage({ token }) {
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {canDo('manual_edit') && (
                           <button onClick={() => startEdit(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                             ✏️ Edit
                           </button>
-                          <button onClick={() => {
+                          )}
+                          {canDo('manual_edit') && <button onClick={() => {
                             const tracking = prompt(`Enter tracking number for ${order.order_number}:`);
                             if (!tracking?.trim()) return;
                             const carrier = prompt('Carrier (e.g. AusPost, FedEx):') || '';
@@ -1301,7 +1304,7 @@ function ManualOrderManage({ token }) {
                             });
                           }} style={{ background: '#F0FDF4', color: '#059669', border: `1px solid #A7F3D0`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                             🚚 Tracking
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>
@@ -1329,7 +1332,8 @@ function ManualOrderManage({ token }) {
 
 
 // ── Manual Order Bulk Upload ───────────────────────────────────
-function ManualOrderBulkUpload({ token }) {
+function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin }) {
+  const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const [csvText,   setCsvText]   = useState('');
   const [preview,   setPreview]   = useState([]);
   const [loading,   setLoading]   = useState(false);
@@ -1474,8 +1478,8 @@ function ManualOrderBulkUpload({ token }) {
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{preview.length} orders ready to create</span>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer' }}>
-              <input type="checkbox" checked={pushSS} onChange={e => setPushSS(e.target.checked)} />
-              Push to ShipStation
+              <input type="checkbox" checked={pushSS && canPushSS} disabled={!canPushSS} onChange={e => setPushSS(e.target.checked)} />
+              Push to ShipStation {!canPushSS && <span style={{fontSize:11,color:C.muted}}>(no permission)</span>}
             </label>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1612,7 +1616,8 @@ function SkuDropdown({ sku, productName, onChange }) {
   );
 }
 
-function ManualOrderCreate({ token }) {
+function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
+  const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
     reference_no: '',
@@ -1721,8 +1726,8 @@ function ManualOrderCreate({ token }) {
         </div>
         <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         <label style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
-          <input type="checkbox" checked={form.push_to_shipstation} onChange={e => setField('push_to_shipstation', e.target.checked)} />
-          Push to ShipStation
+          <input type="checkbox" checked={form.push_to_shipstation && canPushSS} disabled={!canPushSS} onChange={e => setField('push_to_shipstation', e.target.checked)} />
+          Push to ShipStation {!canPushSS && <span style={{fontSize:11,color:C.muted}}>(no permission)</span>}
         </label>
       </div>
 
@@ -1759,7 +1764,8 @@ function ManualOrderCreate({ token }) {
 
 
 // ── Product Management ─────────────────────────────────────────
-function ProductManagement({ token }) {
+function ProductManagement({ token, userPerms, isSuperAdmin }) {
+  const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
   const [products,  setProducts]  = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [q,         setQ]         = useState('');
@@ -1836,7 +1842,7 @@ function ProductManagement({ token }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Product Management</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={async () => {
+          {canDo('products_import') && <button onClick={async () => {
             setMsg('Fetching from ECCANG...');
             try {
               const r = await fetch('/api/products/import-from-eccang', {
@@ -1860,8 +1866,8 @@ function ProductManagement({ token }) {
             } catch(e) { setMsg(`❌ ${e.message}`); }
           }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             📦 Import ECCANG
-          </button>
-          <button onClick={async () => {
+          </button>}
+          {canDo('products_import') && <button onClick={async () => {
             setMsg('Fetching from JDL...');
             try {
               const r = await fetch('/api/products/import-from-jdl', {
@@ -1885,11 +1891,11 @@ function ProductManagement({ token }) {
             } catch(e) { setMsg(`❌ ${e.message}`); }
           }} style={{ background: '#0369A1', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             🚢 Import JDL
-          </button>
-          <button onClick={() => { setShowNew(true); setMsg(''); }}
+          </button>}
+          {canDo('products_add') && <button onClick={() => { setShowNew(true); setMsg(''); }}
             style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             + Add Product
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -1908,7 +1914,7 @@ function ProductManagement({ token }) {
       </div>
 
       {/* New product form */}
-      {showNew && (
+      {showNew && canDo('products_add') && (
         <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 12 }}>Add Product</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr', gap: 10, marginBottom: 12 }}>
@@ -1965,16 +1971,27 @@ function ProductManagement({ token }) {
 
 // ── User Management ────────────────────────────────────────────
 const ALL_PERMISSIONS = [
-  { key: 'manual_orders',  label: 'View Manual Orders' },
-  { key: 'manual_create',  label: 'Create Manual Order' },
-  { key: 'manual_bulk',    label: 'Bulk Upload Orders' },
-  { key: 'eccang_orders',  label: 'ECCANG Orders' },
-  { key: 'jdl_orders',     label: 'JDL Orders' },
-  { key: 'order_type',     label: 'Order Type Settings' },
-  { key: 'inventory',      label: 'View Inventory' },
-  { key: 'tracking',       label: 'Update Tracking' },
-  { key: 'sync_eccang',    label: 'Sync ECCANG Orders' },
-  { key: 'user_management', label: 'User Management' },
+  // Manual Orders
+  { key: 'manual_orders',       label: 'View Manual Orders',          group: 'Manual Orders' },
+  { key: 'manual_create',       label: 'Create Manual Order',         group: 'Manual Orders' },
+  { key: 'manual_bulk',         label: 'Bulk Upload Orders',          group: 'Manual Orders' },
+  { key: 'manual_edit',         label: 'Edit / Update Tracking',      group: 'Manual Orders' },
+  { key: 'manual_sync_ss',      label: 'Sync from ShipStation',       group: 'Manual Orders' },
+  { key: 'manual_sync_eccang',  label: 'Sync Tracking from ECCANG',   group: 'Manual Orders' },
+  { key: 'manual_push_ss',      label: 'Push Orders to ShipStation',  group: 'Manual Orders' },
+  // Standard Orders
+  { key: 'eccang_orders',       label: 'View ECCANG Orders',          group: 'Standard Orders' },
+  { key: 'jdl_orders',          label: 'View JDL Orders',             group: 'Standard Orders' },
+  { key: 'order_type',          label: 'Order Type Settings',         group: 'Standard Orders' },
+  { key: 'sync_eccang',         label: 'Sync ECCANG Orders (import)', group: 'Standard Orders' },
+  { key: 'tracking',            label: 'Bulk Update Tracking',        group: 'Standard Orders' },
+  // Inventory
+  { key: 'inventory',           label: 'View Inventory',              group: 'Inventory' },
+  // Settings (super admin only by default)
+  { key: 'products_view',       label: 'View Products',               group: 'Settings' },
+  { key: 'products_import',     label: 'Import Products (ECCANG/JDL)', group: 'Settings' },
+  { key: 'products_add',        label: 'Add Product Manually',        group: 'Settings' },
+  { key: 'user_management',     label: 'User Management',             group: 'Settings' },
 ];
 
 function UserManagement({ token, user: currentUser }) {
@@ -2057,20 +2074,30 @@ function UserManagement({ token, user: currentUser }) {
     setList(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]);
   };
 
-  const PermGrid = ({ perms, setPerms, disabled }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginTop: 8 }}>
-      {ALL_PERMISSIONS.map(({ key, label }) => (
-        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, cursor: disabled ? 'default' : 'pointer' }}>
-          <input type="checkbox"
-            checked={perms.includes(key)}
-            disabled={disabled}
-            onChange={() => !disabled && togglePerm(key, perms, setPerms)}
-          />
-          {label}
-        </label>
-      ))}
-    </div>
-  );
+  const PermGrid = ({ perms, setPerms, disabled }) => {
+    const groups = [...new Set(ALL_PERMISSIONS.map(p => p.group))];
+    return (
+      <div style={{ marginTop: 8 }}>
+        {groups.map(group => (
+          <div key={group} style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 4 }}>{group}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 16px', paddingLeft: 8 }}>
+              {ALL_PERMISSIONS.filter(p => p.group === group).map(({ key, label }) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, cursor: disabled ? 'default' : 'pointer' }}>
+                  <input type="checkbox"
+                    checked={perms.includes(key)}
+                    disabled={disabled}
+                    onChange={() => !disabled && togglePerm(key, perms, setPerms)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -2247,11 +2274,11 @@ export default function AdminPage() {
         { key: 'inventory', label: 'View Inventory', perm: 'inventory' },
       ],
     },
-    ...(can('user_management') ? [{
+    ...((can('products_view') || can('user_management')) ? [{
       group: 'Settings',
       icon: '⚙️',
       items: [
-        { key: 'products', label: 'Products',        perm: 'user_management' },
+        { key: 'products', label: 'Products',        perm: 'products_view' },
         { key: 'users',    label: 'User Management', perm: 'user_management' },
       ],
     }] : []),
@@ -2310,15 +2337,15 @@ export default function AdminPage() {
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
           {section === 'orders'        && can('eccang_orders')   && <OrderSearch          token={token} />}
-          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} />}
-          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} />}
-          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} />}
+          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
+          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
+          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
           {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
           {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
           {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
-          {section === 'products'       && can('user_management') && <ProductManagement    token={token} />}
+          {section === 'products'       && can('products_view')    && <ProductManagement    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
           {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
       </div>
