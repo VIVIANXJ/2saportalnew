@@ -579,6 +579,60 @@ function InventoryView({ token }) {
     }
   };
 
+  const exportCsv = () => {
+    const qSku = invSearch.trim().toLowerCase();
+    const filteredItems = items.filter(item => {
+      if (!qSku) return true;
+      const skuMatch  = (item.sku || '').toLowerCase().includes(qSku);
+      const nameMatch = (skuNames[item.sku] || '').toLowerCase().includes(qSku);
+      return skuMatch || nameMatch;
+    });
+
+    const rows = [];
+    filteredItems.forEach(item => {
+      Object.entries(item.warehouses).forEach(([wh, data]) => {
+        if (invFilter !== 'all' && wh !== invFilter) return;
+        if (hideZero && !(data.sellable || data.reserved || data.onway)) return;
+        rows.push({ sku: item.sku, wh, data, name: skuNames[item.sku] || '' });
+      });
+    });
+
+    rows.sort((a, b) => {
+      if (invSortBy === 'sku_asc')       return String(a.sku).localeCompare(String(b.sku));
+      if (invSortBy === 'sku_desc')      return String(b.sku).localeCompare(String(a.sku));
+      if (invSortBy === 'sellable_desc') return (b.data.sellable||0) - (a.data.sellable||0);
+      if (invSortBy === 'sellable_asc')  return (a.data.sellable||0) - (b.data.sellable||0);
+      return 0;
+    });
+
+    const WLABELS = { ECCANG: '2SA Warehouse', C0000001174: 'JD-SYD1', C0000001901: 'JD-MEL1' };
+    const header = ['SKU', 'Product Name', 'Warehouse', 'Sellable', 'Reserved', 'On-Way', 'Total'];
+    const csvRows = [header, ...rows.map(r => [
+      r.sku,
+      r.name,
+      WLABELS[r.wh] || r.wh,
+      r.data.sellable || 0,
+      r.data.reserved || 0,
+      r.data.onway    || 0,
+      (r.data.sellable || 0) + (r.data.reserved || 0),
+    ])];
+
+    const csvContent = csvRows.map(row =>
+      row.map(v => (String(v).includes(',') || String(v).includes('"') || String(v).includes('\n'))
+        ? `"${String(v).replace(/"/g, '""')}"` : v
+      ).join(',')
+    ).join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `inventory-${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Inventory — All Warehouses</h2>
@@ -620,6 +674,13 @@ function InventoryView({ token }) {
             <option value="sellable_desc">Sellable High-Low</option>
             <option value="sellable_asc">Sellable Low-High</option>
           </select>
+          <button onClick={exportCsv} style={{
+            marginLeft: 'auto', padding: '7px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+            border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            ⬇️ Export CSV
+          </button>
         </div>
       )}
 
