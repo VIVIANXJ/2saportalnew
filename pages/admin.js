@@ -551,6 +551,7 @@ function InventoryView({ token }) {
   const [hideZero,   setHideZero]   = useState(false);
   const [invSearch,  setInvSearch]  = useState('');
   const [invSortBy,  setInvSortBy]  = useState('sku_asc');
+  const [invSearchMode, setInvSearchMode] = useState('both'); // 'sku' | 'name' | 'both'
   const [skuNames,   setSkuNames]   = useState({});
   const [lastSync,   setLastSync]   = useState(null);   // { synced_at, sku_count, status }
   const [fromCache,  setFromCache]  = useState(false);
@@ -633,6 +634,8 @@ function InventoryView({ token }) {
       if (!qSku) return true;
       const skuMatch  = (item.sku || '').toLowerCase().includes(qSku);
       const nameMatch = (skuNames[item.sku] || '').toLowerCase().includes(qSku);
+      if (invSearchMode === 'sku')  return skuMatch;
+      if (invSearchMode === 'name') return nameMatch;
       return skuMatch || nameMatch;
     });
 
@@ -726,8 +729,17 @@ function InventoryView({ token }) {
       {searched && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
           <input value={invSearch} onChange={e => { setInvSearch(e.target.value); setInvCurPage(1); }}
-            placeholder="Filter by SKU..."
-            style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 180 }} />
+            placeholder={invSearchMode === 'sku' ? 'Search by SKU...' : invSearchMode === 'name' ? 'Search by product name...' : 'Search SKU or name...'}
+            style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 200 }} />
+          {[['both','SKU + Name'],['sku','SKU only'],['name','Name only']].map(([v, l]) => (
+            <button key={v} onClick={() => { setInvSearchMode(v); setInvCurPage(1); }} style={{
+              padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12,
+              border: `1px solid ${invSearchMode === v ? C.accent : C.border}`,
+              background: invSearchMode === v ? C.accentDim : C.surface,
+              color: invSearchMode === v ? C.accent : C.muted,
+              fontWeight: invSearchMode === v ? 600 : 400,
+            }}>{l}</button>
+          ))}
           {[['all','All Warehouses'],['ECCANG','2SA Warehouse'],['C0000001174','JD-SYD1'],['C0000001901','JD-MEL1']].map(([v, l]) => (
             <button key={v} onClick={() => { setInvFilter(v); setInvCurPage(1); }} style={{
               padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
@@ -767,7 +779,9 @@ function InventoryView({ token }) {
           if (!qSku) return true;
           const skuMatch  = (item.sku || '').toLowerCase().includes(qSku);
           const nameMatch = (skuNames[item.sku] || '').toLowerCase().includes(qSku);
-          return skuMatch || nameMatch;
+          if (invSearchMode === 'sku')  return skuMatch;
+          if (invSearchMode === 'name') return nameMatch;
+          return skuMatch || nameMatch; // 'both'
         });
 
         // Build flat rows with warehouse filter + hide zero
@@ -1318,7 +1332,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
 
   return (
     <div>
-      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Manual Orders</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Orders</h2>
 
       {/* Search bar */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -2525,13 +2539,13 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
 // ── User Management ────────────────────────────────────────────
 const ALL_PERMISSIONS = [
   // Manual Orders
-  { key: 'manual_orders',       label: 'View Manual Orders',          group: 'Manual Orders' },
-  { key: 'manual_create',       label: 'Create Manual Order',         group: 'Manual Orders' },
-  { key: 'manual_bulk',         label: 'Bulk Upload Orders',          group: 'Manual Orders' },
-  { key: 'manual_edit',         label: 'Edit / Update Tracking',      group: 'Manual Orders' },
-  { key: 'manual_sync_ss',      label: 'Sync from ShipStation',       group: 'Manual Orders' },
-  { key: 'manual_sync_eccang',  label: 'Sync Tracking from ECCANG',   group: 'Manual Orders' },
-  { key: 'manual_push_ss',      label: 'Push Orders to ShipStation',  group: 'Manual Orders' },
+  { key: 'manual_orders',       label: 'View Orders',                 group: 'Orders' },
+  { key: 'manual_create',       label: 'Create Order',               group: 'Orders' },
+  { key: 'manual_bulk',         label: 'Bulk Upload',                group: 'Orders' },
+  { key: 'manual_edit',         label: 'Edit / Update Tracking',     group: 'Orders' },
+  { key: 'manual_sync_ss',      label: 'Sync from ShipStation',      group: 'Orders' },
+  { key: 'manual_sync_eccang',  label: 'Sync Tracking from ECCANG',  group: 'Orders' },
+  { key: 'manual_push_ss',      label: 'Push Orders to ShipStation', group: 'Orders' },
   // Standard Orders
   { key: 'eccang_orders',       label: 'View ECCANG Orders',          group: 'Standard Orders' },
   { key: 'jdl_orders',          label: 'View JDL Orders',             group: 'Standard Orders' },
@@ -2802,7 +2816,7 @@ export default function AdminPage() {
 
   const navGroups = [
     {
-      group: 'Manual Orders',
+      group: 'Orders',
       icon: '📝',
       items: [
         { key: 'manual_orders', label: 'View Orders',   perm: 'manual_orders' },
