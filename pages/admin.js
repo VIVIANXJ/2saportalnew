@@ -2571,7 +2571,7 @@ export default function AdminPage() {
             }}
           />
           <span style={{ display: 'none', color: '#fff', fontWeight: 700, fontSize: 16, letterSpacing: '0.02em' }}>CCEP 3PL Portal</span>
-          <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: 400, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Management Portal</span>
+
         </div>
         {/* Right: links + logout */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 200, justifyContent: 'flex-end' }}>
