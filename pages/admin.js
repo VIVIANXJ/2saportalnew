@@ -1198,14 +1198,20 @@ function getTrackingUrl(carrier, trackingNumber) {
 function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
   const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
   const [orders,    setOrders]    = useState([]);
+  const [allOrders, setAllOrders] = useState([]); // 全量，用于本地 fuzzy filter
   const [loading,   setLoading]   = useState(false);
   const [q,         setQ]         = useState('');
+  const [localQ,    setLocalQ]    = useState('');  // 本地即时过滤词
+  const [searchMode, setSearchMode] = useState('all'); // 'all' | 'sku' | 'name' | 'recipient'
   const [searched,  setSearched]  = useState(false);
   const [saving,    setSaving]    = useState(false);
   const [saveMsg,   setSaveMsg]   = useState('');
   const [page,      setPage]      = useState(1);
   const [total,     setTotal]     = useState(0);
+  const [skuNames,  setSkuNames]  = useState({});
   const PAGE_SIZE = 50;
+
+  useEffect(() => { loadSkuNames().then(n => setSkuNames(n)); }, []);
 
   // ── Modal state ───────────────────────────────────────────────
   const [modalOrder, setModalOrder] = useState(null); // full order object
@@ -1215,19 +1221,43 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
   const load = async (p = 1) => {
     setLoading(true); setSearched(true);
     try {
-      const params = new URLSearchParams({ page: p, pageSize: PAGE_SIZE });
+      // 拉全量数据（pageSize 500），本地做 fuzzy filter，不依赖服务端分页
+      const params = new URLSearchParams({ page: 1, pageSize: 500 });
       if (q.trim()) params.set('q', q.trim());
       const res  = await fetch(`/api/orders/manual?${params}`);
       const json = await res.json();
-      setOrders(json.data || []);
-      setTotal(json.pagination?.total || 0);
-      setPage(p);
+      const data = json.data || [];
+      setAllOrders(data);
+      setOrders(data);
+      setTotal(json.pagination?.total || data.length);
+      setPage(1);
+      setLocalQ(''); // 重置本地过滤
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
   };
+
+  // 本地 fuzzy filter（对已加载数据实时过滤）
+  const filteredOrders = React.useMemo(() => {
+    const ql = localQ.trim().toLowerCase();
+    if (!ql) return allOrders;
+    return allOrders.filter(order => {
+      const inOrderNo  = (order.order_number  || '').toLowerCase().includes(ql);
+      const inRef      = (order.reference_no  || '').toLowerCase().includes(ql);
+      const inName     = (order.ship_to_name  || '').toLowerCase().includes(ql);
+      const inItems    = (order.order_items   || []).some(it =>
+        (it.sku          || '').toLowerCase().includes(ql) ||
+        (it.product_name || '').toLowerCase().includes(ql) ||
+        (skuNames[it.sku]|| '').toLowerCase().includes(ql)
+      );
+      if (searchMode === 'sku')       return inItems && (order.order_items||[]).some(it => (it.sku||'').toLowerCase().includes(ql));
+      if (searchMode === 'name')      return inItems && (order.order_items||[]).some(it => ((it.product_name||'')+(skuNames[it.sku]||'')).toLowerCase().includes(ql));
+      if (searchMode === 'recipient') return inName;
+      return inOrderNo || inRef || inName || inItems;
+    });
+  }, [localQ, allOrders, searchMode, skuNames]);
 
   // Open modal with full order data
   const openModal = (order) => {
@@ -1330,12 +1360,12 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Orders</h2>
 
       {/* Search bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: searched ? 10 : 20, flexWrap: 'wrap' }}>
         <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
-          placeholder="Search by order no., reference, recipient name, or product SKU/name..."
-          style={{ flex: 1, minWidth: 260, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+          placeholder="Order no. / reference (blank = load all)..."
+          style={{ flex: 1, minWidth: 200, padding: '10px 14px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-          {loading ? '...' : 'Search'}
+          {loading ? '...' : 'Load'}
         </button>
         {canDo('manual_sync_ss') && <button onClick={async () => {
           setSaveMsg('Syncing from ShipStation...');
@@ -1386,14 +1416,38 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
       )}
 
       {searched && !loading && (
+        <>
+        {/* Fuzzy filter bar */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <input
+            value={localQ}
+            onChange={e => setLocalQ(e.target.value)}
+            placeholder={searchMode === 'sku' ? 'Filter by SKU...' : searchMode === 'name' ? 'Filter by product name...' : searchMode === 'recipient' ? 'Filter by recipient name...' : 'Filter by SKU, name, recipient, ref...'}
+            style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.accent}`, fontSize: 14, background: C.bg, color: C.text, width: 280, outline: 'none' }}
+          />
+          {[['all','All fields'],['sku','SKU'],['name','Product name'],['recipient','Recipient']].map(([v, l]) => (
+            <button key={v} onClick={() => setSearchMode(v)} style={{
+              padding: '6px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 12,
+              border: `1px solid ${searchMode === v ? C.accent : C.border}`,
+              background: searchMode === v ? C.accentDim : C.surface,
+              color: searchMode === v ? C.accent : C.muted,
+              fontWeight: searchMode === v ? 600 : 400,
+            }}>{l}</button>
+          ))}
+          <span style={{ fontSize: 12, color: C.muted, marginLeft: 4 }}>
+            {filteredOrders.length} / {allOrders.length} orders
+            {localQ && <span style={{ color: C.accent }}> — "{localQ}"</span>}
+          </span>
+        </div>
+
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
-            {total} manual order{total !== 1 ? 's' : ''}
-            {q && <span style={{ marginLeft: 8, color: C.accent }}>— filtered by "{q}"</span>}
+            {allOrders.length} order{allOrders.length !== 1 ? 's' : ''} loaded
+            {q && <span style={{ marginLeft: 8, color: C.accent }}>— server filter: "{q}"</span>}
           </div>
 
-          {orders.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No manual orders found</div>
+          {filteredOrders.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No orders match "{localQ}"</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
@@ -1404,7 +1458,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
                 </tr>
               </thead>
               <tbody>
-                {orders.map(order => (
+                {filteredOrders.map(order => (
                   <tr key={order.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                     <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
                     <td style={{ padding: '10px 12px', color: C.muted, fontSize: 12 }}>{order.reference_no || <span style={{ color: C.border }}>—</span>}</td>
@@ -1446,16 +1500,8 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
             </table>
           )}
 
-          {total > PAGE_SIZE && (
-            <div style={{ display: 'flex', gap: 8, padding: '12px 16px', borderTop: `1px solid ${C.border}`, alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: C.muted }}>{((page-1)*PAGE_SIZE)+1}–{Math.min(page*PAGE_SIZE, total)} of {total}</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => load(page-1)} disabled={page===1} style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 12 }}>‹</button>
-                <button onClick={() => load(page+1)} disabled={page*PAGE_SIZE>=total} style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontSize: 12 }}>›</button>
-              </div>
-            </div>
-          )}
         </div>
+        </>
       )}
 
       {/* ── Edit Modal ───────────────────────────────────────── */}
