@@ -116,7 +116,7 @@ export default async function handler(req, res) {
       rows.forEach(item => {
         const sku  = item.customerGoodsId || item.jdGoodsId || '';
         const name = item.goodsName || '';
-        if (sku) allProducts.push({ sku, product_name: name });
+        if (sku) allProducts.push({ sku, product_name: name, source: 'JDL' });
       });
 
       const totalPages = page.pages || 1;
