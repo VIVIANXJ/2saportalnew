@@ -1696,7 +1696,25 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
       <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 20 }}>Create Manual Order</h2>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <input value={form.ship_to_name} onChange={e => setField('ship_to_name', e.target.value)} placeholder="Recipient name *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <LocationDropdown
+              token={token}
+              value={form.ship_to_name}
+              onChange={(loc) => {
+                // 선택 시 모든 주소 필드 자동 채우기
+                setField('ship_to_name', loc.name || '');
+                if (loc.address1 !== undefined) {
+                  setField('customer_company', loc.company || form.customer_company);
+                  setField('address1', loc.address1 || '');
+                  setField('address2', loc.address2 || '');
+                  setField('suburb',   loc.suburb   || '');
+                  setField('state',    loc.state    || '');
+                  setField('postcode', loc.postcode || '');
+                  setField('country',  loc.country  || 'AU');
+                  setField('phone',    loc.phone    || form.phone);
+                  setField('email',    loc.email    || form.email);
+                }
+              }}
+            />
           <input value={form.reference_no} onChange={e => setField('reference_no', e.target.value)} placeholder="Reference No." style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }}>
@@ -1762,6 +1780,252 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
 }
 
 
+
+
+// ── Location Dropdown — searchable address book ────────────────
+function LocationDropdown({ token, value, onChange }) {
+  const [query,   setQuery]   = useState(value || '');
+  const [options, setOptions] = useState([]);
+  const [open,    setOpen]    = useState(false);
+  const inputRef = useRef(null);
+
+  const search = async (q) => {
+    if (!q.trim()) { setOptions([]); return; }
+    try {
+      const res  = await fetch(`/api/locations?dropdown=1&q=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      setOptions(json.data || []);
+    } catch { setOptions([]); }
+  };
+
+  useEffect(() => { setQuery(value || ''); }, [value]);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={e => {
+          setQuery(e.target.value);
+          onChange({ name: e.target.value }); // 自由输入也更新 name
+          search(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => { if (query) search(query); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Recipient name * — type to search locations"
+        style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, width: '100%' }}
+      />
+      {open && options.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', maxHeight: 260, overflowY: 'auto', marginTop: 2,
+        }}>
+          {options.map(loc => (
+            <div key={loc.id}
+              onMouseDown={() => {
+                onChange(loc); // 전체 location 객체 전달
+                setQuery(loc.name);
+                setOpen(false);
+              }}
+              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
+              onMouseEnter={e => e.currentTarget.style.background = C.accentDim}
+              onMouseLeave={e => e.currentTarget.style.background = ''}
+            >
+              <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{loc.name}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                {[loc.company, loc.address1, loc.suburb, loc.state, loc.postcode].filter(Boolean).join(', ')}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Location Management ────────────────────────────────────────
+function LocationManagement({ token }) {
+  const [locations, setLocations] = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [q,         setQ]         = useState('');
+  const [msg,       setMsg]       = useState('');
+  const [page,      setPage]      = useState(1);
+  const [total,     setTotal]     = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showForm,  setShowForm]  = useState(false);
+  const [editId,    setEditId]    = useState(null);
+  const [saving,    setSaving]    = useState(false);
+  const PAGE_SIZE = 50;
+
+  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '' };
+  const [form, setForm] = useState(emptyForm);
+  const setField = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const load = async (p = 1) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: p, pageSize: PAGE_SIZE });
+      if (q.trim()) params.set('q', q.trim());
+      const res  = await fetch(`/api/locations?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setLocations(json.data || []);
+      setTotal(json.count || 0);
+      setTotalPages(json.totalPages || 1);
+      setPage(p);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(1); }, []);
+
+  const save = async () => {
+    if (!form.name.trim()) { setMsg('❌ Name is required'); return; }
+    setSaving(true);
+    try {
+      const url    = editId ? `/api/locations?id=${editId}` : '/api/locations';
+      const method = editId ? 'PATCH' : 'POST';
+      const res    = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg(editId ? '✅ Updated' : '✅ Location added');
+      setShowForm(false); setEditId(null); setForm(emptyForm);
+      load(page);
+    } catch(e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const remove = async (id, name) => {
+    if (!confirm(`Remove location "${name}"?`)) return;
+    await fetch(`/api/locations?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setMsg(`✅ "${name}" removed`);
+    load(page);
+  };
+
+  const startEdit = (loc) => {
+    setForm({ name: loc.name, company: loc.company||'', address1: loc.address1||'', address2: loc.address2||'',
+      suburb: loc.suburb||'', state: loc.state||'', postcode: loc.postcode||'', country: loc.country||'AU',
+      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'' });
+    setEditId(loc.id);
+    setShowForm(true);
+    setMsg('');
+  };
+
+  const iStyle = { padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, background: C.bg, color: C.text, width: '100%' };
+
+  const COUNTRIES = [
+    ['AU','AU — Australia'],['NZ','NZ — New Zealand'],['US','US — United States'],
+    ['GB','GB — United Kingdom'],['SG','SG — Singapore'],['JP','JP — Japan'],
+    ['CN','CN — China'],['HK','HK — Hong Kong'],['CA','CA — Canada'],
+    ['DE','DE — Germany'],['FR','FR — France'],
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Locations (Address Book)</h2>
+        <button onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); setMsg(''); }}
+          style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          + Add Location
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* Form */}
+      {showForm && (
+        <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 16 }}>{editId ? 'Edit Location' : 'New Location'}</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NAME *</label><input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Recipient name" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>COMPANY</label><input value={form.company} onChange={e => setField('company', e.target.value)} placeholder="Company" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>PHONE</label><input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS LINE 1 *</label><input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Street address" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS LINE 2</label><input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Unit / Floor" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>EMAIL</label><input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>SUBURB *</label><input value={form.suburb} onChange={e => setField('suburb', e.target.value)} placeholder="Suburb / City" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>STATE *</label><input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="NSW / VIC..." style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>POSTCODE *</label><input value={form.postcode} onChange={e => setField('postcode', e.target.value)} placeholder="Postcode" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>COUNTRY</label>
+              <select value={form.country} onChange={e => setField('country', e.target.value)} style={{ ...iStyle, marginTop: 4 }}>
+                {COUNTRIES.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={save} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {saving ? 'Saving...' : editId ? 'Update' : 'Add Location'}
+            </button>
+            <button onClick={() => { setShowForm(false); setEditId(null); setMsg(''); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
+          placeholder="Search by name or company..."
+          style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+        <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: 12, color: C.muted }}>
+          {total} locations · page {page} of {totalPages}
+        </div>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
+        ) : locations.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No locations yet. Add one to get started.</div>
+        ) : (
+          <>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: C.surfaceAlt }}>
+                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Postcode', 'Phone', ''].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {locations.map(loc => (
+                <tr key={loc.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '9px 12px', fontWeight: 600, color: C.text }}>{loc.name}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.company || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.address1}{loc.address2 ? `, ${loc.address2}` : ''}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.suburb}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.state}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.phone || '—'}</td>
+                  <td style={{ padding: '9px 12px' }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => startEdit(loc)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
+                      <button onClick={() => remove(loc.id, loc.name)} style={{ background: C.dangerBg, color: C.danger, border: `1px solid #FECACA`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Remove</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pagination page={page} total={total} pageSize={PAGE_SIZE} onChange={p => load(p)} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── Product Management ─────────────────────────────────────────
 function ProductManagement({ token, userPerms, isSuperAdmin }) {
@@ -1992,6 +2256,7 @@ const ALL_PERMISSIONS = [
   { key: 'products_import',     label: 'Import Products (ECCANG/JDL)', group: 'Settings' },
   { key: 'products_add',        label: 'Add Product Manually',        group: 'Settings' },
   { key: 'user_management',     label: 'User Management',             group: 'Settings' },
+  { key: 'locations',           label: 'Manage Locations (Address Book)', group: 'Settings' },
 ];
 
 function UserManagement({ token, user: currentUser }) {
@@ -2274,12 +2539,13 @@ export default function AdminPage() {
         { key: 'inventory', label: 'View Inventory', perm: 'inventory' },
       ],
     },
-    ...((can('products_view') || can('user_management')) ? [{
+    ...((can('locations') || can('products_view') || can('user_management')) ? [{
       group: 'Settings',
       icon: '⚙️',
       items: [
-        { key: 'products', label: 'Products',        perm: 'products_view' },
-        { key: 'users',    label: 'User Management', perm: 'user_management' },
+        { key: 'locations', label: 'Locations',       perm: 'locations' },
+        { key: 'products',  label: 'Products',        perm: 'products_view' },
+        { key: 'users',     label: 'User Management', perm: 'user_management' },
       ],
     }] : []),
   ].map(group => ({
@@ -2345,6 +2611,7 @@ export default function AdminPage() {
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
           {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
+          {section === 'locations'      && can('locations')         && <LocationManagement   token={token} />}
           {section === 'products'       && can('products_view')    && <ProductManagement    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
           {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
