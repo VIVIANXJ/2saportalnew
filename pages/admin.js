@@ -119,8 +119,8 @@ function LoginScreen({ onLogin }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
           <div style={{ width: 40, height: 40, background: C.accent, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>2S</div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>2SA Admin</div>
-            <div style={{ fontSize: 12, color: C.muted }}>Management Portal</div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: C.text }}>CCEP 3PL Portal</div>
+            <div style={{ fontSize: 12, color: C.muted }}>Admin Login</div>
           </div>
         </div>
 
@@ -2554,21 +2554,29 @@ export default function AdminPage() {
 
   return (
     <>
-      <Head><title>2SA Admin</title></Head>
+      <Head><title>CCEP 3PL Portal</title></Head>
       <style>{`* { box-sizing: border-box; margin: 0; padding: 0; } body { background: ${C.bg}; color: ${C.text}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }`}</style>
 
-      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 32, height: 32, background: C.accent, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13 }}>2S</div>
-          <div>
-            <span style={{ fontWeight: 600, fontSize: 14 }}>2SA Admin</span>
-            <span style={{ fontSize: 11, color: C.muted, marginLeft: 8 }}>Management Portal</span>
-          </div>
+      <header style={{ background: '#F4010A', padding: '0 24px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+        {/* Left: username */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 200 }}>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>👤 {user?.username}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 13, color: C.muted }}>👤 {user?.username}</span>
-          <a href="/" style={{ fontSize: 13, color: C.muted, textDecoration: 'none' }}>Client Portal →</a>
-          <button onClick={logout} style={{ fontSize: 12, color: C.danger, background: 'none', border: `1px solid #FECACA`, borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>Logout</button>
+        {/* Centre: Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          {/* Replace /ccep-logo.png with your actual logo file in the public/ folder */}
+          <img src="/ccep-logo.png" alt="CCEP 3PL Portal" style={{ height: 36, objectFit: 'contain' }}
+            onError={e => {
+              e.target.style.display = 'none';
+              e.target.nextSibling.style.display = 'block';
+            }}
+          />
+          <span style={{ display: 'none', color: '#fff', fontWeight: 700, fontSize: 18, letterSpacing: '0.02em' }}>CCEP 3PL Portal</span>
+        </div>
+        {/* Right: links + logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 200, justifyContent: 'flex-end' }}>
+          <a href="/" style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', textDecoration: 'none' }}>Client Portal →</a>
+          <button onClick={logout} style={{ fontSize: 12, color: '#fff', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>Logout</button>
         </div>
       </header>
 
