@@ -89,7 +89,7 @@ export default async function handler(req, res) {
         // 尝试所有可能的名称字段
         const name = item.product_name || item.goods_name || item.name
                    || item.product_title || item.title || '';
-        if (sku) allProducts.push({ sku, product_name: name });
+        if (sku) allProducts.push({ sku, product_name: name, source: 'ECCANG' });
       });
 
       hasMore = data.nextPage === 'true' || data.nextPage === true;
