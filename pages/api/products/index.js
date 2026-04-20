@@ -12,29 +12,58 @@ export default async function handler(req, res) {
   const supabase = getSupabase();
 
   if (req.method === 'GET') {
-    const { q, all, limit = '500' } = req.query;
+    const { q, all, page = '1', pageSize = '100', limit } = req.query;
+
+    // SKU dropdown 用 limit 模式（不分页，拉全量）
+    if (limit) {
+      let query = supabase
+        .from('products')
+        .select('id, sku, product_name')
+        .eq('active', true)
+        .order('sku', { ascending: true })
+        .limit(parseInt(limit));
+      if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
+      const { data, error } = await query;
+      if (error) return res.status(500).json({ error: error.message });
+      return res.status(200).json({ success: true, count: data.length, data: data || [] });
+    }
+
+    // 分页模式
+    const pg   = Math.max(1, parseInt(page));
+    const size = Math.min(200, Math.max(1, parseInt(pageSize)));
+    const from = (pg - 1) * size;
+    const to   = from + size - 1;
+
     let query = supabase
       .from('products')
-      .select('id, sku, product_name, description, active')
+      .select('id, sku, product_name, description, active, source', { count: 'exact' })
       .order('sku', { ascending: true })
-      .limit(parseInt(limit));
+      .range(from, to);
 
     if (!all) query = query.eq('active', true);
     if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ success: true, count: data.length, data: data || [] });
+    return res.status(200).json({
+      success: true,
+      count:   count || 0,
+      page:    pg,
+      pageSize: size,
+      totalPages: Math.ceil((count || 0) / size),
+      data:    data || [],
+    });
   }
 
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
 
   if (req.method === 'POST') {
-    const { sku, product_name, description = '' } = req.body || {};
+    const { sku, product_name, description = '', source } = req.body || {};
     if (!sku?.trim() || !product_name?.trim()) return res.status(400).json({ error: 'SKU and product_name required' });
     const { data, error } = await supabase
-      .from('products').insert({ sku: sku.trim(), product_name: product_name.trim(), description })
+      .from('products')
+      .insert({ sku: sku.trim(), product_name: product_name.trim(), description, source })
       .select().single();
     if (error) {
       if (error.code === '23505') return res.status(409).json({ error: `SKU "${sku}" already exists` });
@@ -46,23 +75,13 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'id required' });
-    const { sku, product_name, description, active } = req.body || {};
+    const { active, source } = req.body || {};
     const updates = {};
-    if (sku !== undefined)          updates.sku          = sku.trim();
-    if (product_name !== undefined) updates.product_name = product_name.trim();
-    if (description !== undefined)  updates.description  = description;
-    if (active !== undefined)       updates.active       = active;
+    if (active !== undefined) updates.active = active;
+    if (source !== undefined) updates.source = source;
     const { data, error } = await supabase.from('products').update(updates).eq('id', id).select().single();
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true, data });
-  }
-
-  if (req.method === 'DELETE') {
-    const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'id required' });
-    const { error } = await supabase.from('products').update({ active: false }).eq('id', id);
-    if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({ success: true });
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
