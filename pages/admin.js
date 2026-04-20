@@ -561,25 +561,14 @@ function InventoryView({ token }) {
   const search = async () => {
     setLoading(true); setError(''); setInvCurPage(1);
     try {
-      // 不传 sku 参数 — ECCANG 只支持精确匹配，拉全量后前端 fuzzy filter
-      const [eccangRes, jdlRes] = await Promise.all([
-        fetch(`/api/warehouse/eccang/inventory`),
-        fetch(`/api/warehouse/jdl/inventory`),
-      ]);
-      const eccangJson = await eccangRes.json();
-      const jdlJson    = await jdlRes.json();
+      // 使用合并端点（与 index.js 保持一致），该端点有完整分页循环，数据完整
+      const params = new URLSearchParams();
+      if (sku.trim()) params.set('sku', sku.trim());
+      const res  = await fetch(`/api/warehouse/inventory${params.toString() ? '?' + params : ''}`);
+      const json = await res.json();
 
-      const skuMap = {};
-      (eccangJson.data || []).forEach(item => {
-        if (!skuMap[item.sku]) skuMap[item.sku] = { sku: item.sku, warehouses: {} };
-        skuMap[item.sku].warehouses['ECCANG'] = item;
-      });
-      (jdlJson.data || []).forEach(item => {
-        if (!skuMap[item.sku]) skuMap[item.sku] = { sku: item.sku, warehouses: {} };
-        skuMap[item.sku].warehouses[item.warehouse_code || 'JDL'] = item;
-      });
-
-      setItems(Object.values(skuMap));
+      // /api/warehouse/inventory 返回格式：{ data: [{ sku, warehouses: { ECCANG: {...}, C0000001174: {...}, ... } }] }
+      setItems(json.data || []);
       setSearched(true);
       setInvSearch(sku.trim()); // sync to fuzzy filter
       setInvCurPage(1);
