@@ -2044,19 +2044,20 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
           <LocationDropdown
               token={token}
               value={form.ship_to_name}
+              placeholder="Recipient name * — type to search"
               onChange={(loc) => {
-                // 선택 시 모든 주소 필드 자동 채우기
                 setField('ship_to_name', loc.name || '');
-                if (loc.address1 !== undefined) {
-                  setField('customer_company', loc.company || form.customer_company);
-                  setField('address1', loc.address1 || '');
-                  setField('address2', loc.address2 || '');
-                  setField('suburb',   loc.suburb   || '');
-                  setField('state',    loc.state    || '');
-                  setField('postcode', loc.postcode || '');
-                  setField('country',  loc.country  || 'AU');
-                  setField('phone',    loc.phone    || form.phone);
-                  setField('email',    loc.email    || form.email);
+                if (!loc._freeInput) {
+                  // 从下拉选中 → 自动填所有字段
+                  setField('customer_company', loc.company  || '');
+                  setField('address1',         loc.address1 || '');
+                  setField('address2',         loc.address2 || '');
+                  setField('suburb',           loc.suburb   || '');
+                  setField('state',            loc.state    || '');
+                  setField('postcode',         loc.postcode || '');
+                  setField('country',          loc.country  || 'AU');
+                  setField('phone',            loc.phone    || '');
+                  setField('email',            loc.email    || '');
                 }
               }}
             />
@@ -2082,7 +2083,29 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
           <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Address line 1 *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Address line 2" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
-          <input value={form.suburb} onChange={e => setField('suburb', e.target.value)} placeholder="Suburb *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <LocationDropdown
+              token={token}
+              value={form.suburb}
+              placeholder="Suburb * — type to search"
+              searchField="suburb"
+              onChange={(loc) => {
+                if (loc._freeInput) {
+                  setField('suburb', loc.suburb || '');
+                } else {
+                  // 从下拉选中 → 自动填所有字段
+                  setField('ship_to_name',     loc.name     || form.ship_to_name);
+                  setField('customer_company', loc.company  || '');
+                  setField('address1',         loc.address1 || '');
+                  setField('address2',         loc.address2 || '');
+                  setField('suburb',           loc.suburb   || '');
+                  setField('state',            loc.state    || '');
+                  setField('postcode',         loc.postcode || '');
+                  setField('country',          loc.country  || 'AU');
+                  setField('phone',            loc.phone    || '');
+                  setField('email',            loc.email    || '');
+                }
+              }}
+            />
           <input value={form.postcode} onChange={e => setField('postcode', e.target.value)} placeholder="Postcode *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
@@ -2127,7 +2150,8 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
 
 
 // ── Location Dropdown — searchable address book ────────────────
-function LocationDropdown({ token, value, onChange }) {
+function LocationDropdown({ token, value, onChange, placeholder, searchField }) {
+  // searchField: 'name'(default) 或 'suburb' — 控制输入框显示的字段和搜索词
   const [query,   setQuery]   = useState(value || '');
   const [options, setOptions] = useState([]);
   const [open,    setOpen]    = useState(false);
@@ -2146,20 +2170,33 @@ function LocationDropdown({ token, value, onChange }) {
 
   useEffect(() => { setQuery(value || ''); }, [value]);
 
+  const handleChange = (e) => {
+    setQuery(e.target.value);
+    // 自由输入时只更新对应字段，不覆盖其他字段
+    if (searchField === 'suburb') {
+      onChange({ suburb: e.target.value, _freeInput: true });
+    } else {
+      onChange({ name: e.target.value, _freeInput: true });
+    }
+    search(e.target.value);
+    setOpen(true);
+  };
+
+  const handleSelect = (loc) => {
+    onChange(loc); // 选中时传完整 location 对象，自动填所有字段
+    setQuery(searchField === 'suburb' ? (loc.suburb || '') : (loc.name || ''));
+    setOpen(false);
+  };
+
   return (
     <div style={{ position: 'relative' }}>
       <input
         ref={inputRef}
         value={query}
-        onChange={e => {
-          setQuery(e.target.value);
-          onChange({ name: e.target.value }); // 自由输入也更新 name
-          search(e.target.value);
-          setOpen(true);
-        }}
+        onChange={handleChange}
         onFocus={() => { if (query) search(query); setOpen(true); }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Recipient name * — type to search locations"
+        placeholder={placeholder || 'Recipient name * — type to search locations'}
         style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, width: '100%' }}
       />
       {open && options.length > 0 && (
@@ -2170,11 +2207,7 @@ function LocationDropdown({ token, value, onChange }) {
         }}>
           {options.map(loc => (
             <div key={loc.id}
-              onMouseDown={() => {
-                onChange(loc); // 전체 location 객체 전달
-                setQuery(loc.name);
-                setOpen(false);
-              }}
+              onMouseDown={() => handleSelect(loc)}
               style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.border}` }}
               onMouseEnter={e => e.currentTarget.style.background = C.accentDim}
               onMouseLeave={e => e.currentTarget.style.background = ''}
