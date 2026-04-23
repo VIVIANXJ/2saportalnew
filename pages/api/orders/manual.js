@@ -102,11 +102,12 @@ export default async function handler(req, res) {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
-    // ── Project-based access control ──────────────────────────
-    const authHeader = (req.headers.authorization || '').replace('Bearer ', '');
-    const tokenData  = verifyToken(authHeader);
+    // ── Access control ────────────────────────────────────────
+    const authHeader      = (req.headers.authorization || '').replace('Bearer ', '');
+    const tokenData       = verifyToken(authHeader);
     const allowedProjects = tokenData?.allowed_projects || [];
     const isSuperAdmin    = tokenData?.role === 'super_admin';
+    const currentUsername = tokenData?.sub || null;
 
     // Project-based filter: restrict to allowed projects
     // Primary: filter by order.project_id directly
@@ -127,6 +128,11 @@ export default async function handler(req, res) {
       .select('*, order_items (sku, product_name, quantity, notes)', { count: 'exact' })
       .ilike('order_number', 'MAN-%')
       .order('created_at', { ascending: false });
+
+    // Non-super-admin users only see their own orders
+    if (!isSuperAdmin && currentUsername) {
+      query = query.eq('created_by_username', currentUsername);
+    }
 
     if (q) {
       // Server-side filter on order-level fields (fast, indexed)
@@ -190,9 +196,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const auth  = req.headers.authorization || '';
-    const token = auth.replace('Bearer ', '');
-    if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
+    const auth     = req.headers.authorization || '';
+    const token    = auth.replace('Bearer ', '');
+    const postUser = verifyToken(token);
+    if (!postUser) return res.status(401).json({ error: 'Unauthorized' });
+    const createdBy = postUser.sub || null;
 
     const {
       reference_no = '',
@@ -250,6 +258,7 @@ export default async function handler(req, res) {
         notes:      orderPayload.notes,
         ...(project_id    ? { project_id }    : {}),
         ...(billing_group  ? { billing_group }  : {}),
+        ...(createdBy      ? { created_by_username: createdBy } : {}),
       })
       .select()
       .single();
@@ -370,9 +379,11 @@ export default async function handler(req, res) {
 
   // Bulk upload: POST with { bulk: true, orders: [...] }
   if (req.method === 'POST' && req.body?.bulk) {
-    const auth  = req.headers.authorization || '';
-    const token = auth.replace('Bearer ', '');
-    if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
+    const auth      = req.headers.authorization || '';
+    const token     = auth.replace('Bearer ', '');
+    const bulkUser  = verifyToken(token);
+    if (!bulkUser) return res.status(401).json({ error: 'Unauthorized' });
+    const bulkCreatedBy = bulkUser.sub || null;
 
     const { orders: bulkOrders = [], push_to_shipstation = false } = req.body;
     if (!Array.isArray(bulkOrders) || bulkOrders.length === 0) {
@@ -437,7 +448,8 @@ export default async function handler(req, res) {
             ship_to_address: orderPayload.ship_to_address,
             notes:        orderPayload.notes,
             ...(rowProjectId    ? { project_id:    rowProjectId }    : {}),
-            ...(rowBillingGroup ? { billing_group: rowBillingGroup } : {}),
+            ...(rowBillingGroup ? { billing_group: rowBillingGroup }   : {}),
+            ...(bulkCreatedBy   ? { created_by_username: bulkCreatedBy } : {}),
           })
           .select()
           .single();
