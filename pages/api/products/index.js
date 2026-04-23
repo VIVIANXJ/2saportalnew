@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('products')
-      .select('id, sku, product_name, description, active, source, project_id', { count: 'exact' })
+      .select('id, sku, product_name, description, active, source, project_id, billing_group', { count: 'exact' })
       .order('sku', { ascending: true })
       .range(from, to);
 
@@ -62,11 +62,11 @@ export default async function handler(req, res) {
   if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
 
   if (req.method === 'POST') {
-    const { sku, product_name, description = '', source, project_id } = req.body || {};
+    const { sku, product_name, description = '', source, project_id, billing_group } = req.body || {};
     if (!sku?.trim() || !product_name?.trim()) return res.status(400).json({ error: 'SKU and product_name required' });
     const { data, error } = await supabase
       .from('products')
-      .insert({ sku: sku.trim(), product_name: product_name.trim(), description, source, ...(project_id ? { project_id } : {}) })
+      .insert({ sku: sku.trim(), product_name: product_name.trim(), description, source, ...(project_id ? { project_id } : {}), ...(billing_group ? { billing_group } : {}) })
       .select().single();
     if (error) {
       if (error.code === '23505') return res.status(409).json({ error: `SKU "${sku}" already exists` });
@@ -78,7 +78,7 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'id required' });
-    const { active, source, project_id } = req.body || {};
+    const { active, source, project_id, billing_group } = req.body || {};
     const updates = {};
     if (active     !== undefined) updates.active     = active;
     if (source     !== undefined) updates.source     = source;
