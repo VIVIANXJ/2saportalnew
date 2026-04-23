@@ -15,19 +15,22 @@ async function loadSkuNames() {
   return skuNamesGlobal;
 }
 
-// Global products cache
-let productsGlobal = [];
-let productsLoaded = false;
-async function loadProducts() {
-  if (productsLoaded) return productsGlobal;
+// Global products cache (keyed by project filter string)
+let productsCache = {};
+async function loadProducts(allowedProjects) {
+  // allowedProjects: array of project IDs ([] = no restriction)
+  const cacheKey = (allowedProjects || []).sort().join(',') || '__all__';
+  if (productsCache[cacheKey]) return productsCache[cacheKey];
   try {
-    // 드롭다운용: 전체 로드 (limit 모드)
-    const res = await fetch('/api/products?limit=2000');
+    const params = new URLSearchParams({ limit: '2000' });
+    if (allowedProjects && allowedProjects.length > 0) {
+      params.set('projects', allowedProjects.join(','));
+    }
+    const res = await fetch(`/api/products?${params}`);
     const json = await res.json();
-    if (json.success) productsGlobal = json.data || [];
-    productsLoaded = true;
-  } catch {}
-  return productsGlobal;
+    if (json.success) productsCache[cacheKey] = json.data || [];
+  } catch { productsCache[cacheKey] = []; }
+  return productsCache[cacheKey] || [];
 }
 
 const C = {
@@ -1195,7 +1198,7 @@ function getTrackingUrl(carrier, trackingNumber) {
 }
 
 // ── Manual Order Management ────────────────────────────────────
-function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
+function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) {
   const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
   const [orders,    setOrders]    = useState([]);
   const [allOrders, setAllOrders] = useState([]); // 全量，用于本地 fuzzy filter
@@ -1621,6 +1624,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
                         <SkuDropdown
                           sku={item.sku}
                           productName={item.product_name}
+                          allowedProjects={allowedProjects}
                           onChange={(sku, name) => {
                             setItem(i, 'sku', sku);
                             if (name) setItem(i, 'product_name', name);
@@ -1677,7 +1681,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin }) {
 
 
 // ── Manual Order Bulk Upload ───────────────────────────────────
-function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin }) {
+function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects }) {
   const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const [csvText,   setCsvText]   = useState('');
   const [preview,   setPreview]   = useState([]);
@@ -1877,7 +1881,7 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin }) {
 
 
 // ── SKU Dropdown — searchable product selector ─────────────────
-function SkuDropdown({ sku, productName, onChange }) {
+function SkuDropdown({ sku, productName, onChange, allowedProjects }) {
   const [query,    setQuery]    = useState(sku || '');
   const [options,  setOptions]  = useState([]);
   const [open,     setOpen]     = useState(false);
@@ -1885,10 +1889,10 @@ function SkuDropdown({ sku, productName, onChange }) {
   const [allProds, setAllProds] = useState(null);
   const inputRef = React.useRef(null);
 
-  // 제품 목록 로드 (전역 캐시 사용)
+  // Load products, filtered by allowed projects if applicable
   useEffect(() => {
-    loadProducts().then(prods => setAllProds(prods));
-  }, []);
+    loadProducts(allowedProjects || []).then(prods => setAllProds(prods));
+  }, [JSON.stringify(allowedProjects)]);
 
   // 검색어 변경 시 필터링
   useEffect(() => {
@@ -1961,7 +1965,7 @@ function SkuDropdown({ sku, productName, onChange }) {
   );
 }
 
-function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
+function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) {
   const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
@@ -2124,6 +2128,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin }) {
             <SkuDropdown
               sku={it.sku}
               productName={it.product_name}
+              allowedProjects={allowedProjects}
               onChange={(sku, name) => {
                 setItem(idx, 'sku', sku);
                 setItem(idx, 'product_name', name);
@@ -2610,6 +2615,262 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
   );
 }
 
+// ── Project Management ─────────────────────────────────────────
+function ProjectManagement({ token }) {
+  const [projects,   setProjects]   = useState([]);
+  const [products,   setProducts]   = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [msg,        setMsg]        = useState('');
+  const [showNew,    setShowNew]    = useState(false);
+  const [newProject, setNewProject] = useState({ name: '', description: '' });
+  const [editId,     setEditId]     = useState(null);
+  const [editData,   setEditData]   = useState({});
+  const [saving,     setSaving]     = useState(false);
+  // 哪个 project 展开显示 SKU 列表
+  const [expandedId, setExpandedId] = useState(null);
+  // SKU 分配：拖拉选择
+  const [assigningId, setAssigningId] = useState(null);
+  const [skuSearch,   setSkuSearch]   = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [pRes, prodRes] = await Promise.all([
+        fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/products?limit=2000&all=1', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const pJson    = await pRes.json();
+      const prodJson = await prodRes.json();
+      setProjects(pJson.data || []);
+      setProducts(prodJson.data || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const createProject = async () => {
+    if (!newProject.name.trim()) { setMsg('❌ Project name required'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(newProject),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Project created');
+      setShowNew(false);
+      setNewProject({ name: '', description: '' });
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = async () => {
+    setSaving(true);
+    try {
+      const res  = await fetch(`/api/projects?id=${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(editData),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Saved');
+      setEditId(null);
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  // Assign/unassign a SKU to a project
+  const toggleSkuProject = async (sku_id, currentProjectId, targetProjectId) => {
+    const newProjectId = currentProjectId === targetProjectId ? null : targetProjectId;
+    try {
+      await fetch(`/api/products?id=${sku_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ project_id: newProjectId }),
+      });
+      // update local state instantly
+      setProducts(prev => prev.map(p => p.id === sku_id ? { ...p, project_id: newProjectId } : p));
+      setProjects(prev => prev.map(proj => {
+        if (proj.id === currentProjectId && currentProjectId !== targetProjectId) return { ...proj, sku_count: Math.max(0, (proj.sku_count || 0) - 1) };
+        if (proj.id === targetProjectId  && currentProjectId !== targetProjectId) return { ...proj, sku_count: (proj.sku_count || 0) + 1 };
+        if (proj.id === targetProjectId  && currentProjectId === targetProjectId) return { ...proj, sku_count: Math.max(0, (proj.sku_count || 0) - 1) };
+        return proj;
+      }));
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+  };
+
+  const inp = { padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text, width: '100%', boxSizing: 'border-box' };
+
+  // SKUs currently assigned to a project
+  const projectSkus = (projectId) => products.filter(p => p.project_id === projectId);
+  // Unassigned SKUs
+  const unassigned  = products.filter(p => !p.project_id);
+
+  const filteredUnassigned = unassigned.filter(p =>
+    !skuSearch.trim() ||
+    p.sku.toLowerCase().includes(skuSearch.toLowerCase()) ||
+    (p.product_name || '').toLowerCase().includes(skuSearch.toLowerCase())
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Project Management</h2>
+        <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          + New Project
+        </button>
+      </div>
+
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* New project form */}
+      {showNew && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New Project</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Project Name *</div>
+              <input value={newProject.name} onChange={e => setNewProject(p => ({ ...p, name: e.target.value }))} placeholder="e.g. CCEP Campaign 2026" style={inp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Description</div>
+              <input value={newProject.description} onChange={e => setNewProject(p => ({ ...p, description: e.target.value }))} placeholder="Optional description" style={inp} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={createProject} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {saving ? '...' : 'Create'}
+            </button>
+            <button onClick={() => setShowNew(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Project list */}
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {projects.map(proj => (
+            <div key={proj.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              {/* Project header row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
+                {editId === proj.id ? (
+                  <>
+                    <input value={editData.name || ''} onChange={e => setEditData(p => ({ ...p, name: e.target.value }))}
+                      style={{ ...inp, width: 200 }} />
+                    <input value={editData.description || ''} onChange={e => setEditData(p => ({ ...p, description: e.target.value }))}
+                      placeholder="Description" style={{ ...inp, flex: 1 }} />
+                    <button onClick={saveEdit} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => setEditId(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: C.muted }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: C.text }}>{proj.name}</span>
+                      {proj.description && <span style={{ fontSize: 12, color: C.muted, marginLeft: 10 }}>{proj.description}</span>}
+                    </div>
+                    <span style={{ fontSize: 12, color: C.muted, background: C.surfaceAlt, padding: '2px 10px', borderRadius: 20 }}>
+                      {proj.sku_count || 0} SKUs
+                    </span>
+                    <button onClick={() => { setEditData({ name: proj.name, description: proj.description || '' }); setEditId(proj.id); }}
+                      style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      Edit
+                    </button>
+                    <button onClick={() => { setAssigningId(assigningId === proj.id ? null : proj.id); setExpandedId(null); setSkuSearch(''); }}
+                      style={{ background: assigningId === proj.id ? C.accent : C.surface, color: assigningId === proj.id ? '#fff' : C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      {assigningId === proj.id ? 'Done' : '+ Assign SKUs'}
+                    </button>
+                    <button onClick={() => setExpandedId(expandedId === proj.id ? null : proj.id)}
+                      style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: C.muted }}>
+                      {expandedId === proj.id ? '▲ Hide' : '▼ View SKUs'}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Assign SKUs panel */}
+              {assigningId === proj.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: 16, background: C.bg }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 10 }}>
+                    Assign SKUs to "{proj.name}" — click to toggle
+                  </div>
+                  <input value={skuSearch} onChange={e => setSkuSearch(e.target.value)}
+                    placeholder="Search SKU or product name..."
+                    style={{ ...inp, marginBottom: 12, width: 300 }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                    {/* Already in this project */}
+                    {projectSkus(proj.id).filter(p =>
+                      !skuSearch.trim() ||
+                      p.sku.toLowerCase().includes(skuSearch.toLowerCase()) ||
+                      (p.product_name||'').toLowerCase().includes(skuSearch.toLowerCase())
+                    ).map(p => (
+                      <div key={p.id} onClick={() => toggleSkuProject(p.id, proj.id, proj.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', background: '#D1FAE5', border: '1px solid #A7F3D0' }}>
+                        <span style={{ color: C.success, fontWeight: 700, fontSize: 13 }}>✓</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.sku}</div>
+                          <div style={{ fontSize: 11, color: C.muted }}>{p.product_name}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Unassigned */}
+                    {filteredUnassigned.map(p => (
+                      <div key={p.id} onClick={() => toggleSkuProject(p.id, null, proj.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, cursor: 'pointer', background: C.surface, border: `1px solid ${C.border}` }}>
+                        <span style={{ color: C.muted, fontSize: 13 }}>○</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.sku}</div>
+                          <div style={{ fontSize: 11, color: C.muted }}>{p.product_name}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* View SKUs panel */}
+              {expandedId === proj.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: 16 }}>
+                  {projectSkus(proj.id).length === 0 ? (
+                    <div style={{ color: C.muted, fontSize: 13 }}>No SKUs assigned yet. Click "+ Assign SKUs" to add.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
+                      {projectSkus(proj.id).map(p => (
+                        <div key={p.id} style={{ padding: '6px 10px', borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}` }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.accent, fontFamily: 'monospace' }}>{p.sku}</div>
+                          <div style={{ fontSize: 11, color: C.muted }}>{p.product_name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {projects.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>
+              No projects yet. Create one to start grouping SKUs.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── User Management ────────────────────────────────────────────
 const ALL_PERMISSIONS = [
   // Manual Orders
@@ -2638,22 +2899,29 @@ const ALL_PERMISSIONS = [
 
 function UserManagement({ token, user: currentUser }) {
   const [users,    setUsers]    = useState([]);
+  const [projects, setProjects] = useState([]); // for allowed_projects picker
   const [loading,  setLoading]  = useState(false);
   const [msg,      setMsg]      = useState('');
   const [editId,   setEditId]   = useState(null);
   const [editPerms, setEditPerms] = useState([]);
   const [editActive, setEditActive] = useState(true);
   const [editNotes, setEditNotes] = useState('');
-  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '' });
+  const [editAllowedProjects, setEditAllowedProjects] = useState([]); // [] = no restriction
+  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '', allowed_projects: [] });
   const [showNew,  setShowNew]  = useState(false);
   const [saving,   setSaving]   = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res  = await fetch('/api/auth/users', { headers: { Authorization: `Bearer ${token}` } });
-      const json = await res.json();
-      setUsers(json.data || []);
+      const [uRes, pRes] = await Promise.all([
+        fetch('/api/auth/users',  { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/projects',    { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const uJson = await uRes.json();
+      const pJson = await pRes.json();
+      setUsers(uJson.data    || []);
+      setProjects(pJson.data || []);
     } finally { setLoading(false); }
   };
 
@@ -2664,6 +2932,7 @@ function UserManagement({ token, user: currentUser }) {
     setEditPerms(u.permissions || []);
     setEditActive(u.active !== false);
     setEditNotes(u.notes || '');
+    setEditAllowedProjects(u.allowed_projects || []);
     setMsg('');
   };
 
@@ -2673,7 +2942,7 @@ function UserManagement({ token, user: currentUser }) {
       const res  = await fetch(`/api/auth/users?id=${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes }),
+        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes, allowed_projects: editAllowedProjects }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
@@ -2691,7 +2960,7 @@ function UserManagement({ token, user: currentUser }) {
       const res  = await fetch('/api/auth/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({ ...newUser }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
@@ -2843,6 +3112,45 @@ function UserManagement({ token, user: currentUser }) {
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 4 }}>Permissions:</div>
                 <PermGrid perms={editPerms} setPerms={setEditPerms} />
+
+                {/* Project access restriction */}
+                <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6 }}>
+                    PROJECT ACCESS
+                    <span style={{ fontWeight: 400, marginLeft: 8, color: C.muted }}>
+                      {editAllowedProjects.length === 0 ? '(No restriction — can see all SKUs)' : `(Restricted to ${editAllowedProjects.length} project${editAllowedProjects.length>1?'s':''})`}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {projects.filter(p => p.active).map(proj => {
+                      const isAllowed = editAllowedProjects.includes(proj.id);
+                      return (
+                        <button key={proj.id}
+                          onClick={() => setEditAllowedProjects(prev =>
+                            prev.includes(proj.id) ? prev.filter(id => id !== proj.id) : [...prev, proj.id]
+                          )}
+                          style={{
+                            padding: '5px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: isAllowed ? 600 : 400,
+                            border: `1px solid ${isAllowed ? C.accent : C.border}`,
+                            background: isAllowed ? C.accentDim : C.surface,
+                            color: isAllowed ? C.accent : C.muted,
+                          }}>
+                          {isAllowed ? '✓ ' : ''}{proj.name}
+                          <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>{proj.sku_count || 0} SKUs</span>
+                        </button>
+                      );
+                    })}
+                    {editAllowedProjects.length > 0 && (
+                      <button onClick={() => setEditAllowedProjects([])}
+                        style={{ padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', border: `1px solid ${C.border}`, background: 'none', color: C.danger }}>
+                        ✕ Clear all
+                      </button>
+                    )}
+                    {projects.filter(p => p.active).length === 0 && (
+                      <span style={{ fontSize: 12, color: C.muted }}>No projects yet. Create projects first in Project Management.</span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -2920,9 +3228,10 @@ export default function AdminPage() {
       group: 'Settings',
       icon: '⚙️',
       items: [
-        { key: 'locations', label: 'Locations',       perm: 'locations' },
-        { key: 'products',  label: 'Products',        perm: 'products_view' },
-        { key: 'users',     label: 'User Management', perm: 'user_management' },
+        { key: 'locations',    label: 'Locations',          perm: 'locations' },
+        { key: 'products',     label: 'Products',           perm: 'products_view' },
+        { key: 'project_mgmt', label: 'Project Management', perm: 'user_management' },
+        { key: 'users',        label: 'User Management',    perm: 'user_management' },
       ],
     }] : []),
   ].map(group => ({
@@ -2988,9 +3297,9 @@ export default function AdminPage() {
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
           {section === 'orders'        && can('eccang_orders')   && <OrderSearch          token={token} />}
-          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
-          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
-          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
+          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
+          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
+          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
           {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
           {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
@@ -2998,6 +3307,7 @@ export default function AdminPage() {
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
           {section === 'locations'      && can('locations')         && <LocationManagement   token={token} />}
           {section === 'products'       && can('products_view')    && <ProductManagement    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
+          {section === 'project_mgmt'  && can('user_management') && <ProjectManagement    token={token} />}
           {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
       </div>
