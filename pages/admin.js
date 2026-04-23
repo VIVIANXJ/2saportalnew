@@ -2425,7 +2425,6 @@ function LocationManagement({ token }) {
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.suburb}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.state}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.special_instruction || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
