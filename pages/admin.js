@@ -572,7 +572,9 @@ function InventoryView({ token }) {
   const loadFromCache = async () => {
     setLoading(true); setError('');
     try {
-      const res  = await fetch('/api/warehouse/inventory-cached');
+      const res  = await fetch('/api/warehouse/inventory-cached', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const json = await res.json();
       if (json.error) {
         // 表不存在或 Supabase 报错，显示明确错误
@@ -2704,6 +2706,40 @@ function ProjectManagement({ token }) {
     } catch (e) { setMsg(`❌ ${e.message}`); }
   };
 
+  const [showInactive, setShowInactive] = useState(false);
+
+  const deleteProject = async (proj) => {
+    if (proj.sku_count > 0) {
+      if (!confirm(`"${proj.name}" has ${proj.sku_count} SKU(s) assigned. Deleting will unassign all SKUs. Continue?`)) return;
+    } else {
+      if (!confirm(`Delete project "${proj.name}"? This cannot be undone.`)) return;
+    }
+    try {
+      const res  = await fetch(`/api/projects?id=${proj.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Project deleted');
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+  };
+
+  const toggleActive = async (proj) => {
+    try {
+      const res  = await fetch(`/api/projects?id=${proj.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active: !proj.active }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg(proj.active ? '✅ Project hidden' : '✅ Project shown');
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+  };
+
   const inp = { padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text, width: '100%', boxSizing: 'border-box' };
 
   // SKUs currently assigned to a project
@@ -2721,9 +2757,14 @@ function ProjectManagement({ token }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Project Management</h2>
-        <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-          + New Project
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowInactive(v => !v)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: showInactive ? C.accent : C.muted, fontWeight: showInactive ? 600 : 400 }}>
+            {showInactive ? '👁 Showing all' : '👁 Show hidden'}
+          </button>
+          <button onClick={() => { setShowNew(true); setMsg(''); }} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            + New Project
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -2762,8 +2803,8 @@ function ProjectManagement({ token }) {
         <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {projects.map(proj => (
-            <div key={proj.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          {projects.filter(p => showInactive ? true : p.active).map(proj => (
+            <div key={proj.id} style={{ background: C.surface, border: `1px solid ${proj.active ? C.border : '#E5E7EB'}`, borderRadius: 12, overflow: 'hidden', opacity: proj.active ? 1 : 0.6 }}>
               {/* Project header row */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
                 {editId === proj.id ? (
@@ -2795,6 +2836,15 @@ function ProjectManagement({ token }) {
                     <button onClick={() => setExpandedId(expandedId === proj.id ? null : proj.id)}
                       style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: C.muted }}>
                       {expandedId === proj.id ? '▲ Hide' : '▼ View SKUs'}
+                    </button>
+                    <button onClick={() => toggleActive(proj)}
+                      title={proj.active ? 'Hide this project from users' : 'Show this project to users'}
+                      style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: proj.active ? C.muted : C.warning }}>
+                      {proj.active ? '🙈 Hide' : '👁 Show'}
+                    </button>
+                    <button onClick={() => deleteProject(proj)}
+                      style={{ background: 'none', border: `1px solid #FECACA`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: C.danger }}>
+                      🗑 Delete
                     </button>
                   </>
                 )}
