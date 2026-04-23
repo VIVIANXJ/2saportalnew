@@ -26,8 +26,9 @@ export default async function handler(req, res) {
       const projectFilter = (req.query.projects || '').split(',').filter(Boolean);
       if (projectFilter.length > 0) query = query.in('project_id', projectFilter);
 
+      const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
-      return res.status(200).json({ success: true, count: data.length, data: data || [] });
+      return res.status(200).json({ success: true, count: (data||[]).length, data: data || [] });
     }
 
     // 分页模式
