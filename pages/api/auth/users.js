@@ -41,14 +41,14 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { data, error } = await supabase
       .from('admin_users')
-      .select('id, username, permissions, active, created_at, notes')
+      .select('id, username, permissions, active, created_at, notes, allowed_projects')
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true, data: data || [], all_permissions: ALL_PERMISSIONS });
   }
 
   if (req.method === 'POST') {
-    const { username, password, permissions = [], notes = '' } = req.body || {};
+    const { username, password, permissions = [], notes = '', allowed_projects = [] } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
     if (username === (process.env.ADMIN_USERNAME || '2sa-admin')) {
       return res.status(400).json({ error: 'Cannot create user with super admin username' });
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('admin_users')
-      .insert({ username, password_hash: hashPassword(password), permissions, active: true, notes })
+      .insert({ username, password_hash: hashPassword(password), permissions, active: true, notes, allowed_projects })
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -75,12 +75,13 @@ export default async function handler(req, res) {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'User id required' });
 
-    const { password, permissions, active, notes } = req.body || {};
+    const { password, permissions, active, notes, allowed_projects } = req.body || {};
     const updates = {};
-    if (permissions !== undefined) updates.permissions = permissions;
-    if (active !== undefined)      updates.active      = active;
-    if (notes !== undefined)       updates.notes       = notes;
-    if (password)                  updates.password_hash = hashPassword(password);
+    if (permissions      !== undefined) updates.permissions      = permissions;
+    if (active           !== undefined) updates.active           = active;
+    if (notes            !== undefined) updates.notes            = notes;
+    if (allowed_projects !== undefined) updates.allowed_projects = allowed_projects;
+    if (password)                       updates.password_hash    = hashPassword(password);
 
     const { data, error } = await supabase
       .from('admin_users')
