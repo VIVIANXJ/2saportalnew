@@ -640,7 +640,7 @@ function InventoryView({ token }) {
     filteredItems.forEach(item => {
       Object.entries(item.warehouses).forEach(([wh, data]) => {
         if (invFilter !== 'all' && wh !== invFilter) return;
-        if (hideZero && !(data.sellable || data.reserved || data.onway)) return;
+        if (hideZero && !data.sellable) return;
         rows.push({ sku: item.sku, wh, data, name: skuNames[item.sku] || '' });
       });
     });
@@ -654,15 +654,12 @@ function InventoryView({ token }) {
     });
 
     const WLABELS = { ECCANG: '2SA Warehouse', C0000001174: 'JD-SYD1', C0000001901: 'JD-MEL1' };
-    const header = ['SKU', 'Product Name', 'Warehouse', 'Sellable', 'Reserved', 'On-Way', 'Total'];
+    const header = ['SKU', 'Product Name', 'Warehouse', 'Sellable'];
     const csvRows = [header, ...rows.map(r => [
       r.sku,
       r.name,
       WLABELS[r.wh] || r.wh,
       r.data.sellable || 0,
-      r.data.reserved || 0,
-      r.data.onway    || 0,
-      (r.data.sellable || 0) + (r.data.reserved || 0),
     ])];
 
     const csvContent = csvRows.map(row =>
@@ -786,7 +783,7 @@ function InventoryView({ token }) {
         filteredItems.forEach(item => {
           Object.entries(item.warehouses).forEach(([wh, data]) => {
             if (invFilter !== 'all' && wh !== invFilter) return;
-            if (hideZero && !(data.sellable || data.reserved || data.onway)) return;
+            if (hideZero && !data.sellable) return;
             rows.push({ sku: item.sku, wh, data });
           });
         });
@@ -814,7 +811,7 @@ function InventoryView({ token }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: C.surfaceAlt }}>
-                    {['SKU', 'Name', 'Warehouse', 'Sellable', 'Reserved', 'On-way', 'Total'].map(h => (
+                    {['SKU', 'Name', 'Warehouse', 'Sellable'].map(h => (
                       <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>
@@ -838,9 +835,6 @@ function InventoryView({ token }) {
                           </span>
                         </td>
                         <td style={{ padding: '8px 14px', fontWeight: 700, color: row.data.sellable > 0 ? C.success : C.muted }}>{row.data.sellable || 0}</td>
-                        <td style={{ padding: '8px 14px', color: row.data.reserved > 0 ? C.warning : C.muted }}>{row.data.reserved || 0}</td>
-                        <td style={{ padding: '8px 14px', color: row.data.onway > 0 ? C.accent : C.muted }}>{row.data.onway || 0}</td>
-                        <td style={{ padding: '8px 14px', fontWeight: 700, color: C.text }}>{(row.data.sellable||0) + (row.data.reserved||0)}</td>
                       </tr>
                     );
                   })}
@@ -1280,6 +1274,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
       carrier:          order.carrier          || '',
       notes:            order.notes            || '',
       project_id:       order.project_id       || '',
+      billing_group:    order.billing_group    || '',
       ship_to_name:     order.ship_to_name     || '',
       customer_company: order.customer_company || '',
       customer_phone:   order.customer_phone   || '',
@@ -1322,7 +1317,8 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
       const payload = {
         reference_no:    modalData.reference_no,
         status:          modalData.status,
-        project_id:      modalData.project_id || null,
+        project_id:      modalData.project_id   || null,
+        billing_group:   modalData.billing_group || null,
         tracking_number: modalData.tracking_number,
         carrier:         modalData.carrier,
         notes:           modalData.notes,
@@ -1554,6 +1550,10 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                       <option value="">— No project —</option>
                       {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Billing Group</span>
+                    <input value={modalData.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="e.g. CCEP-AU, ASL-2026..." style={inp} />
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Carrier</span>
@@ -1988,6 +1988,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
     reference_no: '',
     client: 'Project',
     project_id: '',
+    billing_group: '',
     ship_to_name: '',
     customer_company: '',
     country: 'AU',
@@ -2039,7 +2040,8 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
         },
         notes: form.notes,
         push_to_shipstation: form.push_to_shipstation,
-        ...(form.project_id ? { project_id: form.project_id } : {}),
+        ...(form.project_id    ? { project_id:    form.project_id }    : {}),
+        ...(form.billing_group ? { billing_group: form.billing_group } : {}),
         items: form.items.map(it => ({
           sku: it.sku,
           product_name: it.product_name,
@@ -2055,7 +2057,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Create manual order failed');
       setResult(json);
-      setForm(prev => ({ ...prev, reference_no: '', project_id: '', ship_to_name: '', customer_company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', phone: '', email: '', notes: '', items: [{ ...emptyItem }] }));
+      setForm(prev => ({ ...prev, reference_no: '', project_id: '', billing_group: '', ship_to_name: '', customer_company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', phone: '', email: '', notes: '', items: [{ ...emptyItem }] }));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -2097,6 +2099,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
               : projects
             ).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          <input value={form.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="Billing Group (optional)" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
             <option value="Project">Project</option>
@@ -2274,7 +2277,7 @@ function LocationManagement({ token }) {
   const [saving,    setSaving]    = useState(false);
   const PAGE_SIZE = 50;
 
-  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '' };
+  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '', special_instruction: '' };
   const [form, setForm] = useState(emptyForm);
   const setField = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -2324,7 +2327,7 @@ function LocationManagement({ token }) {
   const startEdit = (loc) => {
     setForm({ name: loc.name, company: loc.company||'', address1: loc.address1||'', address2: loc.address2||'',
       suburb: loc.suburb||'', state: loc.state||'', postcode: loc.postcode||'', country: loc.country||'AU',
-      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'' });
+      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'', special_instruction: loc.special_instruction||'' });
     setEditId(loc.id);
     setShowForm(true);
     setMsg('');
@@ -2374,7 +2377,8 @@ function LocationManagement({ token }) {
                 {COUNTRIES.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
-            <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>SPECIAL INSTRUCTION</label><input value={form.special_instruction || ''} onChange={e => setField('special_instruction', e.target.value)} placeholder="e.g. Leave at reception, call before delivery..." style={{ ...iStyle, marginTop: 4 }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={save} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
@@ -2407,7 +2411,7 @@ function LocationManagement({ token }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Postcode', 'Phone', ''].map(h => (
+                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Notes', 'Special Instruction', ''].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
@@ -2421,7 +2425,8 @@ function LocationManagement({ token }) {
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.suburb}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.state}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.phone || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.notes || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.special_instruction || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button onClick={() => startEdit(loc)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
@@ -2622,7 +2627,7 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['SKU', 'Product Name', 'Description', 'Location'].map(h => (
+                {['SKU', 'Product Name', 'Billing Group', 'Description', 'Location'].map(h => (
                   <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
@@ -2632,6 +2637,7 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
                 <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
                   <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{p.sku}</td>
                   <td style={{ padding: '9px 14px', color: C.text }}>{p.product_name}</td>
+                  <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.billing_group || '—'}</td>
                   <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.description || '—'}</td>
                   <td style={{ padding: '9px 14px' }}>{sourceTag(p.source)}</td>
                 </tr>
