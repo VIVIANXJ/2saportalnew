@@ -84,6 +84,12 @@ export default async function handler(req, res) {
     if (source     !== undefined) updates.source     = source;
     if (project_id !== undefined) updates.project_id = project_id || null;
 
+    const { data, error } = await supabase
+      .from('products')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true, data });
