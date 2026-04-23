@@ -196,6 +196,7 @@ export default async function handler(req, res) {
 
     const {
       reference_no = '',
+      billing_group = '',
       client = 'ASL',
       ship_to_name,
       customer_company = '',
@@ -247,7 +248,8 @@ export default async function handler(req, res) {
         ship_to_name: orderPayload.ship_to_name,
         ship_to_address: orderPayload.ship_to_address,
         notes:      orderPayload.notes,
-        ...(project_id ? { project_id } : {}),
+        ...(project_id    ? { project_id }    : {}),
+        ...(billing_group  ? { billing_group }  : {}),
       })
       .select()
       .single();
@@ -308,6 +310,7 @@ export default async function handler(req, res) {
     if (customer_email    !== undefined) updates.customer_email    = customer_email;
     if (ship_to_address   !== undefined) updates.ship_to_address   = ship_to_address;
     if (patchProjectId    !== undefined) updates.project_id        = patchProjectId || null;
+    if (req.body?.billing_group !== undefined) updates.billing_group = req.body.billing_group || null;
 
     const { data: order, error } = await supabase
       .from('orders')
