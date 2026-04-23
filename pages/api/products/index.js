@@ -22,7 +22,6 @@ export default async function handler(req, res) {
         .eq('active', true)
         .order('sku', { ascending: true })
         .limit(parseInt(limit));
-        .limit(parseInt(limit));
       if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
       const projectFilter = (req.query.projects || '').split(',').filter(Boolean);
       if (projectFilter.length > 0) query = query.in('project_id', projectFilter);
