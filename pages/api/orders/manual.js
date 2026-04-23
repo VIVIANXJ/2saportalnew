@@ -101,6 +101,23 @@ export default async function handler(req, res) {
     const q = String(req.query.q || '').trim();
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
+
+    // ── Project-based access control ──────────────────────────
+    const authHeader = (req.headers.authorization || '').replace('Bearer ', '');
+    const tokenData  = verifyToken(authHeader);
+    const allowedProjects = tokenData?.allowed_projects || [];
+    const isSuperAdmin    = tokenData?.role === 'super_admin';
+
+    // Get allowed SKUs if user has project restrictions
+    let allowedSkus = null; // null = no restriction
+    if (!isSuperAdmin && allowedProjects.length > 0) {
+      const { data: projProds } = await supabase
+        .from('products')
+        .select('sku')
+        .in('project_id', allowedProjects);
+      allowedSkus = (projProds || []).map(p => p.sku);
+    }
+
     // First fetch all matching orders (with items) then do fuzzy filter in JS
     // because Supabase doesn't support cross-table OR filtering easily
     let query = supabase
@@ -148,6 +165,14 @@ export default async function handler(req, res) {
       });
       data = [...data, ...itemMatches];
     }
+    // Project access filter — only show orders where ALL items are in allowed SKUs
+    if (allowedSkus !== null) {
+      data = data.filter(order =>
+        (order.order_items || []).length === 0 ||
+        (order.order_items || []).some(it => allowedSkus.includes(it.sku))
+      );
+    }
+
     const finalCount = q ? data.length : (count || 0);
     // Apply pagination manually when we did client-side merge
     const paginatedData = q ? data.slice(from, from + pageSize) : data;
