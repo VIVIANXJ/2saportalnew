@@ -1221,7 +1221,12 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
   // ── Modal state ───────────────────────────────────────────────
   const [modalOrder, setModalOrder] = useState(null); // full order object
   const [modalData,  setModalData]  = useState({});   // editable fields
+  const [projects,   setProjects]   = useState([]);
   const emptyItem = { sku: '', product_name: '', quantity: 1 };
+  useEffect(() => {
+    fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(j => setProjects((j.data || []).filter(p => p.active)));
+  }, []);
 
   const load = async (p = 1) => {
     setLoading(true); setSearched(true);
@@ -1274,6 +1279,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
       tracking_number:  order.tracking_number  || '',
       carrier:          order.carrier          || '',
       notes:            order.notes            || '',
+      project_id:       order.project_id       || '',
       ship_to_name:     order.ship_to_name     || '',
       customer_company: order.customer_company || '',
       customer_phone:   order.customer_phone   || '',
@@ -1316,6 +1322,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
       const payload = {
         reference_no:    modalData.reference_no,
         status:          modalData.status,
+        project_id:      modalData.project_id || null,
         tracking_number: modalData.tracking_number,
         carrier:         modalData.carrier,
         notes:           modalData.notes,
@@ -1539,6 +1546,13 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Status</span>
                     <select value={modalData.status} onChange={e => setField('status', e.target.value)} style={inp}>
                       {statusOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Project</span>
+                    <select value={modalData.project_id || ''} onChange={e => setField('project_id', e.target.value)} style={inp}>
+                      <option value="">— No project —</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1973,6 +1987,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
   const [form, setForm] = useState({
     reference_no: '',
     client: 'Project',
+    project_id: '',
     ship_to_name: '',
     customer_company: '',
     country: 'AU',
@@ -1987,6 +2002,11 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
     items: [{ ...emptyItem }],
     push_to_shipstation: true,
   });
+  const [projects, setProjects] = useState([]);
+  useEffect(() => {
+    fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(j => setProjects((j.data || []).filter(p => p.active)));
+  }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -2019,6 +2039,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
         },
         notes: form.notes,
         push_to_shipstation: form.push_to_shipstation,
+        ...(form.project_id ? { project_id: form.project_id } : {}),
         items: form.items.map(it => ({
           sku: it.sku,
           product_name: it.product_name,
@@ -2034,7 +2055,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Create manual order failed');
       setResult(json);
-      setForm(prev => ({ ...prev, reference_no: '', ship_to_name: '', customer_company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', phone: '', email: '', notes: '', items: [{ ...emptyItem }] }));
+      setForm(prev => ({ ...prev, reference_no: '', project_id: '', ship_to_name: '', customer_company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', phone: '', email: '', notes: '', items: [{ ...emptyItem }] }));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -2068,6 +2089,14 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
               }}
             />
           <input value={form.reference_no} onChange={e => setField('reference_no', e.target.value)} placeholder="Reference No." style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <select value={form.project_id} onChange={e => setField('project_id', e.target.value)}
+            style={{ padding: '10px 12px', border: `1px solid ${form.project_id ? C.accent : C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: form.project_id ? C.text : C.muted }}>
+            <option value="">— Select Project (optional) —</option>
+            {(allowedProjects.length > 0
+              ? projects.filter(p => allowedProjects.includes(p.id))
+              : projects
+            ).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
             <option value="Project">Project</option>
