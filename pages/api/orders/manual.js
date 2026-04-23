@@ -393,6 +393,9 @@ export default async function handler(req, res) {
           ship_to_address,
           notes = '',
           items = [],
+          status: rowStatus,
+          project_id: rowProjectId,
+          billing_group: rowBillingGroup,
         } = row;
 
         if (!ship_to_name || !ship_to_address?.address1 || !ship_to_address?.suburb || !ship_to_address?.state || !ship_to_address?.postcode) {
@@ -427,12 +430,14 @@ export default async function handler(req, res) {
             order_number: orderPayload.order_number,
             reference_no: orderPayload.reference_no,
             order_type:   orderPayload.order_type,
-            status:       orderPayload.status,
+            status:       rowStatus || orderPayload.status,
             client:       orderPayload.client,
             warehouse:    orderPayload.warehouse,
             ship_to_name: orderPayload.ship_to_name,
             ship_to_address: orderPayload.ship_to_address,
             notes:        orderPayload.notes,
+            ...(rowProjectId    ? { project_id:    rowProjectId }    : {}),
+            ...(rowBillingGroup ? { billing_group: rowBillingGroup } : {}),
           })
           .select()
           .single();
