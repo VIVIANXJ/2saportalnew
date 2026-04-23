@@ -1489,7 +1489,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: C.surfaceAlt }}>
-                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Products', 'Tracking', 'Created', 'Actions'].map(h => (
+                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Products', 'Tracking', 'Created', ...(isSuperAdmin ? ['Placed By'] : []), 'Actions'].map(h => (
                     <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -1524,6 +1524,9 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                       })() : <span style={{ color: C.border }}>—</span>}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
+                    {isSuperAdmin && (
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted, fontFamily: 'monospace' }}>{order.created_by_username || '—'}</td>
+                    )}
                     <td style={{ padding: '10px 12px' }}>
                       {canDo('manual_edit') && (
                         <button onClick={() => openModal(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
