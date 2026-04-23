@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { verifyToken } from '../auth/login';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -18,11 +19,37 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    // ── Project-based access control ──────────────────────────
+    const authHeader      = (req.headers.authorization || '').replace('Bearer ', '');
+    const tokenData       = verifyToken(authHeader);
+    const allowedProjects = tokenData?.allowed_projects || [];
+    const isSuperAdmin    = tokenData?.role === 'super_admin';
+
+    let allowedSkus = null; // null = no restriction
+    if (!isSuperAdmin && allowedProjects.length > 0) {
+      const { data: projProds } = await supabase
+        .from('products')
+        .select('sku')
+        .in('project_id', allowedProjects);
+      allowedSkus = (projProds || []).map(p => p.sku);
+    }
+
     // ── 1. 读缓存 ─────────────────────────────────────────────
-    const { data: cacheRows, error } = await supabase
+    let cacheQuery = supabase
       .from('inventory_cache')
       .select('*')
       .order('sku', { ascending: true });
+
+    // Apply SKU restriction if user has project limits
+    if (allowedSkus !== null) {
+      if (allowedSkus.length === 0) {
+        // No SKUs in allowed projects → return empty
+        return res.status(200).json({ success: true, from_cache: true, last_sync: null, count: 0, data: [] });
+      }
+      cacheQuery = cacheQuery.in('sku', allowedSkus);
+    }
+
+    const { data: cacheRows, error } = await cacheQuery;
 
     if (error) throw new Error(error.message);
 
