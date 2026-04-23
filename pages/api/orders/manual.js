@@ -108,8 +108,10 @@ export default async function handler(req, res) {
     const allowedProjects = tokenData?.allowed_projects || [];
     const isSuperAdmin    = tokenData?.role === 'super_admin';
 
-    // Get allowed SKUs if user has project restrictions
-    let allowedSkus = null; // null = no restriction
+    // Project-based filter: restrict to allowed projects
+    // Primary: filter by order.project_id directly
+    // Fallback: also include orders whose items contain allowed SKUs (for legacy orders without project_id)
+    let allowedSkus = null;
     if (!isSuperAdmin && allowedProjects.length > 0) {
       const { data: projProds } = await supabase
         .from('products')
@@ -165,11 +167,15 @@ export default async function handler(req, res) {
       });
       data = [...data, ...itemMatches];
     }
-    // Project access filter — only show orders where ALL items are in allowed SKUs
-    if (allowedSkus !== null) {
+    // Project access filter
+    if (!isSuperAdmin && allowedProjects.length > 0) {
       data = data.filter(order =>
-        (order.order_items || []).length === 0 ||
-        (order.order_items || []).some(it => allowedSkus.includes(it.sku))
+        // Match by order.project_id (new orders)
+        (order.project_id && allowedProjects.includes(order.project_id)) ||
+        // Fallback: match by SKU for legacy orders without project_id
+        (!order.project_id && allowedSkus !== null && (
+          (order.order_items || []).some(it => allowedSkus.includes(it.sku))
+        ))
       );
     }
 
@@ -199,6 +205,7 @@ export default async function handler(req, res) {
       notes = '',
       items = [],
       push_to_shipstation = true,
+      project_id = null,
     } = req.body || {};
 
     if (!ship_to_name || !ship_to_address?.address1 || !ship_to_address?.suburb || !ship_to_address?.state || !ship_to_address?.postcode || !ship_to_address?.country) {
@@ -239,7 +246,8 @@ export default async function handler(req, res) {
         warehouse: orderPayload.warehouse,
         ship_to_name: orderPayload.ship_to_name,
         ship_to_address: orderPayload.ship_to_address,
-        notes: orderPayload.notes,
+        notes:      orderPayload.notes,
+        ...(project_id ? { project_id } : {}),
       })
       .select()
       .single();
@@ -285,6 +293,7 @@ export default async function handler(req, res) {
       reference_no, tracking_number, carrier, status, notes, push_to_shipstation,
       ship_to_name, customer_company, customer_phone, customer_email, ship_to_address,
       items, // array of {sku, product_name, quantity} — if provided, replaces all items
+      project_id: patchProjectId,
     } = req.body || {};
 
     const updates = {};
@@ -298,6 +307,7 @@ export default async function handler(req, res) {
     if (customer_phone    !== undefined) updates.customer_phone    = customer_phone;
     if (customer_email    !== undefined) updates.customer_email    = customer_email;
     if (ship_to_address   !== undefined) updates.ship_to_address   = ship_to_address;
+    if (patchProjectId    !== undefined) updates.project_id        = patchProjectId || null;
 
     const { data: order, error } = await supabase
       .from('orders')
