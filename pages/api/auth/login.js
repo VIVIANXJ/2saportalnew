@@ -26,13 +26,14 @@ function getSupabase() {
   );
 }
 
-export function makeToken(username, role, permissions) {
+export function makeToken(username, role, permissions, allowed_projects) {
   const payload = Buffer.from(JSON.stringify({
-    sub:         username,
+    sub:              username,
     role,
-    permissions: permissions || [],
-    iat:         Date.now(),
-    exp:         Date.now() + 86400000, // 24h
+    permissions:      permissions      || [],
+    allowed_projects: allowed_projects || [], // [] = no restriction (super admin)
+    iat:              Date.now(),
+    exp:              Date.now() + 86400000, // 24h
   })).toString('base64');
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
   return `${payload}.${sig}`;
@@ -90,11 +91,12 @@ export default async function handler(req, res) {
     const hashedInput = crypto.createHash('sha256').update(password).digest('hex');
     if (hashedInput !== user.password_hash) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const permissions = user.permissions || [];
-    const token = makeToken(username, 'admin', permissions);
+    const permissions      = user.permissions      || [];
+    const allowed_projects = user.allowed_projects || [];
+    const token = makeToken(username, 'admin', permissions, allowed_projects);
     return res.status(200).json({
       success: true, token,
-      user: { username, role: 'admin', permissions },
+      user: { username, role: 'admin', permissions, allowed_projects },
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
