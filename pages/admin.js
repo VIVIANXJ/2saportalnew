@@ -1,6 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 
+// Global stock cache — SKU → total sellable (summed across warehouses)
+let stockCache = {};      // { sku: sellableQty }
+let stockCacheLoaded = false;
+
+async function loadStockCache() {
+  if (stockCacheLoaded) return stockCache;
+  try {
+    const res  = await fetch('/api/warehouse/inventory-cached');
+    const json = await res.json();
+    const cache = {};
+    (json.data || []).forEach(item => {
+      let total = 0;
+      Object.values(item.warehouses || {}).forEach(w => { total += w.sellable || 0; });
+      cache[item.sku] = total;
+    });
+    stockCache = cache;
+    stockCacheLoaded = true;
+  } catch {}
+  return stockCache;
+}
+
+async function checkStock(skus) {
+  // Returns { sku: sellableQty } for the given SKUs
+  await loadStockCache();
+  const result = {};
+  skus.forEach(s => { result[s] = stockCache[s] ?? null; }); // null = not in cache
+  return result;
+}
+
 // Global SKU name cache — loaded once, shared across all components
 let skuNamesGlobal = {};
 let skuNamesLoaded = false;
@@ -1361,7 +1390,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
   };
 
   const inp = { padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, background: C.bg, color: C.text, width: '100%', boxSizing: 'border-box' };
-  const statusOpts = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+  const statusOpts = ['pending', 'backorder', 'processing', 'shipped', 'delivered', 'cancelled'];
 
   return (
     <div>
@@ -1471,7 +1500,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                     <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{order.order_number}</td>
                     <td style={{ padding: '10px 12px', color: C.muted, fontSize: 12 }}>{order.reference_no || <span style={{ color: C.border }}>—</span>}</td>
                     <td style={{ padding: '10px 12px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: order.status === 'shipped' ? C.successBg : order.status === 'pending' ? C.warningBg : C.surfaceAlt, color: order.status === 'shipped' ? C.success : order.status === 'pending' ? C.warning : C.muted }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12, background: order.status === 'shipped' ? C.successBg : order.status === 'backorder' ? '#FEF3C7' : order.status === 'pending' ? C.warningBg : C.surfaceAlt, color: order.status === 'shipped' ? C.success : order.status === 'backorder' ? '#92400E' : order.status === 'pending' ? C.warning : C.muted }}>
                         {order.status}
                       </span>
                     </td>
@@ -1700,11 +1729,12 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
 function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects }) {
   const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const [csvText,   setCsvText]   = useState('');
-  const [preview,   setPreview]   = useState([]);
-  const [loading,   setLoading]   = useState(false);
-  const [result,    setResult]    = useState(null);
-  const [error,     setError]     = useState('');
-  const [pushSS,    setPushSS]    = useState(true);
+  const [preview,       setPreview]       = useState([]);
+  const [loading,       setLoading]       = useState(false);
+  const [result,        setResult]        = useState(null);
+  const [error,         setError]         = useState('');
+  const [pushSS,        setPushSS]        = useState(true);
+  const [stockWarnings, setStockWarnings] = useState({}); // sku → { available, needed }
 
   const REQUIRED_COLS = ['reference_no','ship_to_name','address1','suburb','state','postcode','sku','quantity'];
   const TEMPLATE = [
@@ -1768,7 +1798,7 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const text = ev.target.result;
       setCsvText(text);
       const rows    = parseCSV(text);
@@ -1776,6 +1806,27 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
       setPreview(grouped);
       setResult(null);
       setError('');
+      setStockWarnings({});
+
+      // 查所有 SKU 的库存
+      const allSkus = [...new Set(grouped.flatMap(o => o.items.map(it => it.sku).filter(Boolean)))];
+      if (allSkus.length > 0) {
+        const stock = await checkStock(allSkus);
+        // 计算每个 SKU 的总需求量
+        const needed = {};
+        grouped.forEach(o => o.items.forEach(it => {
+          if (it.sku) needed[it.sku] = (needed[it.sku] || 0) + Number(it.quantity);
+        }));
+        const warnings = {};
+        allSkus.forEach(sku => {
+          const avail = stock[sku] ?? null;
+          const need  = needed[sku] || 0;
+          if (avail !== null && avail < need) {
+            warnings[sku] = { available: avail, needed: need };
+          }
+        });
+        setStockWarnings(warnings);
+      }
     };
     reader.readAsText(file);
   };
@@ -1784,10 +1835,17 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
     if (!preview.length) return;
     setLoading(true); setError(''); setResult(null);
     try {
+      // 标记库存不足的订单为 backorder
+      const ordersWithStatus = preview.map(order => ({
+        ...order,
+        status: order.items.some(it =>
+          it.sku && stockWarnings[it.sku]
+        ) ? 'backorder' : undefined,
+      }));
       const res  = await fetch('/api/orders/manual', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ bulk: true, orders: preview, push_to_shipstation: pushSS }),
+        body:    JSON.stringify({ bulk: true, orders: ordersWithStatus, push_to_shipstation: pushSS }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Upload failed');
@@ -1847,6 +1905,18 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
               Push to ShipStation {!canPushSS && <span style={{fontSize:11,color:C.muted}}>(no permission)</span>}
             </label>
           </div>
+          {Object.keys(stockWarnings).length > 0 && (
+            <div style={{ padding: '10px 16px', background: '#FFF7ED', borderBottom: `1px solid #FED7AA` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 6 }}>
+                ⚠️ Stock shortage detected — affected orders will be marked as <strong>Backorder</strong>
+              </div>
+              {Object.entries(stockWarnings).map(([sku, w]) => (
+                <div key={sku} style={{ fontSize: 11, color: '#92400E', marginTop: 2 }}>
+                  • <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{sku}</span>: need {w.needed}, only {w.available} available ({w.needed - w.available} short)
+                </div>
+              ))}
+            </div>
+          )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
@@ -1857,12 +1927,23 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
             </thead>
             <tbody>
               {preview.map((o, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                  <td style={{ padding: '8px 12px', color: C.accent, fontWeight: 600 }}>{o.reference_no || <span style={{ color: C.border }}>—</span>}</td>
+                <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, background: o.items.some(it => stockWarnings[it.sku]) ? '#FFFBEB' : '' }}>
+                  <td style={{ padding: '8px 12px', color: C.accent, fontWeight: 600 }}>
+                    {o.reference_no || <span style={{ color: C.border }}>—</span>}
+                    {o.items.some(it => stockWarnings[it.sku]) && (
+                      <span style={{ marginLeft: 6, fontSize: 10, background: '#FEF3C7', color: '#92400E', padding: '1px 6px', borderRadius: 8, fontWeight: 700 }}>BACKORDER</span>
+                    )}
+                  </td>
                   <td style={{ padding: '8px 12px', color: C.muted }}>{o.client}</td>
                   <td style={{ padding: '8px 12px', color: C.text }}>{o.ship_to_name}</td>
                   <td style={{ padding: '8px 12px', color: C.muted }}>{o.ship_to_address?.suburb}, {o.ship_to_address?.state} {o.ship_to_address?.postcode}</td>
-                  <td style={{ padding: '8px 12px', color: C.muted }}>{o.items.map(it => `${it.sku}×${it.quantity}`).join(', ')}</td>
+                  <td style={{ padding: '8px 12px', color: C.muted }}>
+                    {o.items.map(it => (
+                      <span key={it.sku} style={{ display: 'inline-block', marginRight: 6, color: stockWarnings[it.sku] ? '#B45309' : C.muted }}>
+                        {it.sku}×{it.quantity}{stockWarnings[it.sku] ? ' ⚠' : ''}
+                      </span>
+                    ))}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1897,17 +1978,23 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
 
 
 // ── SKU Dropdown — searchable product selector ─────────────────
-function SkuDropdown({ sku, productName, onChange, allowedProjects }) {
+function SkuDropdown({ sku, productName, onChange, allowedProjects, onStockInfo }) {
   const [query,    setQuery]    = useState(sku || '');
   const [options,  setOptions]  = useState([]);
   const [open,     setOpen]     = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [allProds, setAllProds] = useState(null);
+  const [stock,    setStock]    = useState({}); // sku → sellable qty
   const inputRef = React.useRef(null);
 
-  // Load products, filtered by allowed projects if applicable
+  // Load products + stock cache
   useEffect(() => {
-    loadProducts(allowedProjects || []).then(prods => setAllProds(prods));
+    loadProducts(allowedProjects || []).then(prods => {
+      setAllProds(prods);
+      // Pre-load stock for visible products
+      const skus = prods.map(p => p.sku);
+      checkStock(skus).then(s => setStock(s));
+    });
   }, [JSON.stringify(allowedProjects)]);
 
   // 검색어 변경 시 필터링
@@ -1961,20 +2048,36 @@ function SkuDropdown({ sku, productName, onChange, allowedProjects }) {
           boxShadow: '0 4px 12px rgba(0,0,0,0.12)', maxHeight: 220, overflowY: 'auto',
           marginTop: 2,
         }}>
-          {options.map(p => (
+          {options.map(p => {
+            const qty = stock[p.sku];
+            const inStock = qty === null || qty === undefined || qty > 0;
+            return (
             <div key={p.sku}
-              onMouseDown={() => select(p)}
+              onMouseDown={() => {
+                select(p);
+                if (onStockInfo) onStockInfo(p.sku, qty ?? 0);
+              }}
               style={{
                 padding: '8px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.border}`,
                 display: 'flex', gap: 10, alignItems: 'center',
+                background: inStock ? '' : '#FFF7ED',
               }}
-              onMouseEnter={e => e.currentTarget.style.background = C.accentDim}
-              onMouseLeave={e => e.currentTarget.style.background = ''}
+              onMouseEnter={e => e.currentTarget.style.background = inStock ? C.accentDim : '#FED7AA'}
+              onMouseLeave={e => e.currentTarget.style.background = inStock ? '' : '#FFF7ED'}
             >
               <span style={{ fontFamily: 'monospace', fontSize: 12, color: C.accent, fontWeight: 600, minWidth: 120 }}>{p.sku}</span>
-              <span style={{ fontSize: 12, color: C.muted }}>{p.product_name}</span>
+              <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>{p.product_name}</span>
+              {qty !== null && qty !== undefined && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10,
+                  background: qty > 0 ? '#D1FAE5' : '#FEE2E2',
+                  color: qty > 0 ? '#065F46' : '#991B1B',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {qty > 0 ? `${qty} in stock` : 'Out of stock'}
+                </span>
+              )}
             </div>
-          ))}
+          );})}
         </div>
       )}
     </div>
@@ -2008,9 +2111,17 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
     fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(j => setProjects((j.data || []).filter(p => p.active)));
   }, []);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState('');
+  const [result,    setResult]    = useState(null);
+  const [itemStock, setItemStock] = useState({}); // sku → sellable qty
+
+  // 当 SKU 变化时查询库存
+  const updateStockForItem = async (sku) => {
+    if (!sku) return;
+    const s = await checkStock([sku]);
+    setItemStock(prev => ({ ...prev, ...s }));
+  };
 
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
   const setItem = (idx, k, v) => setForm(prev => ({
@@ -2023,8 +2134,21 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
   const submit = async () => {
     setLoading(true); setError(''); setResult(null);
     try {
+      // ── 库存检查 ──────────────────────────────────────────
+      const skus = [...new Set(form.items.map(it => it.sku).filter(Boolean))];
+      const latestStock = skus.length > 0 ? await checkStock(skus) : {};
+      setItemStock(latestStock);
+
+      // 判断是否有缺货 SKU
+      const outOfStock = form.items.filter(it =>
+        it.sku && latestStock[it.sku] !== undefined && latestStock[it.sku] !== null &&
+        latestStock[it.sku] < Number(it.quantity)
+      );
+      const isBackorder = outOfStock.length > 0;
+
       const payload = {
         reference_no: form.reference_no,
+        ...(isBackorder ? { status: 'backorder' } : {}),
         client: form.client,
         ship_to_name: form.ship_to_name,
         customer_company: form.customer_company,
@@ -2158,25 +2282,47 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Order Line Items *</div>
         {form.items.map((it, idx) => (
-          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.4fr', gap: 8, marginBottom: 8 }}>
-            <SkuDropdown
-              sku={it.sku}
-              productName={it.product_name}
-              allowedProjects={allowedProjects}
-              onChange={(sku, name) => {
-                setItem(idx, 'sku', sku);
-                setItem(idx, 'product_name', name);
-              }}
-            />
-            <input value={it.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} placeholder="Qty *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
-            <button onClick={() => removeItem(idx)} disabled={form.items.length === 1} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer' }}>-</button>
+          <div key={idx} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 0.8fr 0.4fr', gap: 8 }}>
+              <SkuDropdown
+                sku={it.sku}
+                productName={it.product_name}
+                allowedProjects={allowedProjects}
+                onChange={(sku, name) => {
+                  setItem(idx, 'sku', sku);
+                  setItem(idx, 'product_name', name);
+                  updateStockForItem(sku);
+                }}
+                onStockInfo={(sku, qty) => setItemStock(prev => ({ ...prev, [sku]: qty }))}
+              />
+              <input value={it.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} placeholder="Qty *" style={{ padding: '9px 10px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+              <button onClick={() => removeItem(idx)} disabled={form.items.length === 1} style={{ border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer' }}>-</button>
+            </div>
+            {it.sku && itemStock[it.sku] !== undefined && itemStock[it.sku] !== null && (() => {
+              const qty = itemStock[it.sku];
+              const need = Number(it.quantity) || 0;
+              const ok = qty >= need;
+              return (
+                <div style={{ fontSize: 11, marginTop: 3, marginLeft: 2, color: ok ? '#065F46' : '#991B1B', fontWeight: 500 }}>
+                  {ok
+                    ? `✓ ${qty} in stock`
+                    : `⚠ Only ${qty} in stock — need ${need}, ${need - qty} short → will be marked as backorder`}
+                </div>
+              );
+            })()}
           </div>
         ))}
         <button onClick={addItem} style={{ border: `1px solid ${C.accentDim}`, borderRadius: 8, background: '#fff', color: C.accent, padding: '8px 12px', cursor: 'pointer', fontSize: 12 }}>+ Add Item</button>
       </div>
 
       {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
-      {result && <div style={{ color: C.success, background: C.successBg, border: '1px solid #A7F3D0', borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 12 }}>✅ Created {result.data?.order_number}. ShipStation: {result.shipstation?.pushed ? 'pushed' : `not pushed (${result.shipstation?.reason || 'n/a'})`}</div>}
+      {result && (
+        <div style={{ color: C.success, background: C.successBg, border: '1px solid #A7F3D0', borderRadius: 8, padding: 12, fontSize: 13, marginBottom: 12 }}>
+          ✅ Created {result.data?.order_number}
+          {result.data?.status === 'backorder' && <span style={{ marginLeft: 8, background: '#FEF3C7', color: '#92400E', padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>📦 BACKORDER</span>}
+          {' · '}ShipStation: {result.shipstation?.pushed ? 'pushed' : `not pushed (${result.shipstation?.reason || 'n/a'})`}
+        </div>
+      )}
 
       <button onClick={submit} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
         {loading ? 'Creating...' : 'Create Manual Order'}
