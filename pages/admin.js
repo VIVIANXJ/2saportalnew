@@ -2411,7 +2411,7 @@ function LocationManagement({ token }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Notes', 'Special Instruction', ''].map(h => (
+                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Postcode', 'Special Instruction', ''].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
@@ -2425,7 +2425,7 @@ function LocationManagement({ token }) {
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.suburb}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.state}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.notes || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
                   <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.special_instruction || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
