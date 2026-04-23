@@ -1,3 +1,13 @@
+/**
+ * /api/projects
+ * Project management — super admin only for write, all admins can read
+ *
+ * GET    → list all projects (with SKU count per project)
+ * POST   → create project
+ * PATCH  → update project (?id=xxx)
+ * DELETE → deactivate project (?id=xxx)
+ */
+
 import { createClient } from '@supabase/supabase-js';
 import { verifyToken } from '../auth/login';
 
@@ -9,79 +19,96 @@ function getSupabase() {
 }
 
 export default async function handler(req, res) {
-  const supabase = getSupabase();
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
+  const user  = verifyToken(token);
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
+  const supabase    = getSupabase();
+  const isSuperAdmin = user.role === 'super_admin';
+
+  // ── GET: list projects with SKU counts ───────────────────────
   if (req.method === 'GET') {
-    const { q, all, page = '1', pageSize = '100', limit } = req.query;
+    const { data: projects, error } = await supabase
+      .from('projects')
+      .select('*')
+      .order('name', { ascending: true });
 
-    // SKU dropdown 用 limit 模式（不分页，拉全量）
-    if (limit) {
-      let query = supabase
-        .from('products')
-        .select('id, sku, product_name')
-        .eq('active', true)
-        .order('sku', { ascending: true })
-        .limit(parseInt(limit));
-      if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
-      const { data, error } = await query;
-      if (error) return res.status(500).json({ error: error.message });
-      return res.status(200).json({ success: true, count: data.length, data: data || [] });
-    }
-
-    // 分页模式
-    const pg   = Math.max(1, parseInt(page));
-    const size = Math.min(200, Math.max(1, parseInt(pageSize)));
-    const from = (pg - 1) * size;
-    const to   = from + size - 1;
-
-    let query = supabase
-      .from('products')
-      .select('id, sku, product_name, description, active, source', { count: 'exact' })
-      .order('sku', { ascending: true })
-      .range(from, to);
-
-    if (!all) query = query.eq('active', true);
-    if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
-
-    const { data, error, count } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    return res.status(200).json({
-      success: true,
-      count:   count || 0,
-      page:    pg,
-      pageSize: size,
-      totalPages: Math.ceil((count || 0) / size),
-      data:    data || [],
+
+    // Count SKUs per project
+    const { data: counts } = await supabase
+      .from('products')
+      .select('project_id')
+      .not('project_id', 'is', null);
+
+    const skuCountMap = {};
+    (counts || []).forEach(p => {
+      skuCountMap[p.project_id] = (skuCountMap[p.project_id] || 0) + 1;
     });
+
+    const result = (projects || []).map(p => ({
+      ...p,
+      sku_count: skuCountMap[p.id] || 0,
+    }));
+
+    return res.status(200).json({ success: true, data: result });
   }
 
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (!verifyToken(token)) return res.status(401).json({ error: 'Unauthorized' });
+  // Write operations require super_admin
+  if (!isSuperAdmin) return res.status(403).json({ error: 'Super admin access required' });
 
+  // ── POST: create project ──────────────────────────────────────
   if (req.method === 'POST') {
-    const { sku, product_name, description = '', source } = req.body || {};
-    if (!sku?.trim() || !product_name?.trim()) return res.status(400).json({ error: 'SKU and product_name required' });
+    const { name, description = '' } = req.body || {};
+    if (!name?.trim()) return res.status(400).json({ error: 'Project name required' });
+
     const { data, error } = await supabase
-      .from('products')
-      .insert({ sku: sku.trim(), product_name: product_name.trim(), description, source })
-      .select().single();
+      .from('projects')
+      .insert({ name: name.trim(), description })
+      .select()
+      .single();
+
     if (error) {
-      if (error.code === '23505') return res.status(409).json({ error: `SKU "${sku}" already exists` });
+      if (error.code === '23505') return res.status(409).json({ error: `Project "${name}" already exists` });
       return res.status(500).json({ error: error.message });
     }
     return res.status(201).json({ success: true, data });
   }
 
+  // ── PATCH: update project ─────────────────────────────────────
   if (req.method === 'PATCH') {
     const { id } = req.query;
-    if (!id) return res.status(400).json({ error: 'id required' });
-    const { active, source } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'Project id required' });
+
+    const { name, description, active } = req.body || {};
     const updates = {};
-    if (active !== undefined) updates.active = active;
-    if (source !== undefined) updates.source = source;
-    const { data, error } = await supabase.from('products').update(updates).eq('id', id).select().single();
+    if (name        !== undefined) updates.name        = name;
+    if (description !== undefined) updates.description = description;
+    if (active      !== undefined) updates.active      = active;
+
+    const { data, error } = await supabase
+      .from('projects')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ success: true, data });
+  }
+
+  // ── DELETE: deactivate project ────────────────────────────────
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Project id required' });
+
+    const { error } = await supabase
+      .from('projects')
+      .update({ active: false })
+      .eq('id', id);
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true });
   }
 
   return res.status(405).json({ error: 'Method not allowed' });
