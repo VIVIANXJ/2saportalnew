@@ -2092,7 +2092,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
     reference_no: '',
-    client: 'Project',
+    client: 'ASL',
     project_id: '',
     billing_group: '',
     ship_to_name: '',
@@ -2229,8 +2229,8 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
           <input value={form.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="Billing Group (optional)" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
-            <option value="Project">Project</option>
-            <option value="Warehouse">Warehouse</option>
+            <option value="ASL">ASL</option>
+            <option value="CCEP">CCEP</option>
           </select>
           <select value={form.country} onChange={e => setField('country', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
             <option value="AU">AU — Australia</option>
