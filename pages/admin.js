@@ -2107,13 +2107,17 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
     email: '',
     notes: '',
     items: [{ ...emptyItem }],
-    push_to_shipstation: true,
+    push_to_shipstation: false, // set to true only if user has permission
   });
   const [projects, setProjects] = useState([]);
   useEffect(() => {
     fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(j => setProjects((j.data || []).filter(p => p.active)));
   }, []);
+  // Set push_to_shipstation default based on permission
+  useEffect(() => {
+    if (canPushSS) setField('push_to_shipstation', true);
+  }, [canPushSS]);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
   const [result,    setResult]    = useState(null);
@@ -2166,7 +2170,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
           postcode: form.postcode,
         },
         notes: form.notes,
-        push_to_shipstation: form.push_to_shipstation,
+        push_to_shipstation: canPushSS && form.push_to_shipstation,
         ...(form.project_id    ? { project_id:    form.project_id }    : {}),
         ...(form.billing_group ? { billing_group: form.billing_group } : {}),
         items: form.items.map(it => ({
