@@ -130,8 +130,15 @@ export default async function handler(req, res) {
       .order('created_at', { ascending: false });
 
     // Non-super-admin users only see their own orders
-    if (!isSuperAdmin && currentUsername) {
+    // unless they have 'view_all_orders' permission
+    const canViewAll = isSuperAdmin || (tokenData?.permissions || []).includes('view_all_orders');
+    if (!canViewAll && currentUsername) {
+      // Only show orders placed by this user
+      // NULL created_by_username (legacy orders) are NOT shown to restricted users
       query = query.eq('created_by_username', currentUsername);
+    } else if (!canViewAll) {
+      // No username in token — show nothing
+      query = query.eq('created_by_username', '__no_match__');
     }
 
     if (q) {
