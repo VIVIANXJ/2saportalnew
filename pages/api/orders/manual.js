@@ -213,9 +213,12 @@ export default async function handler(req, res) {
       ship_to_address,
       notes = '',
       items = [],
-      push_to_shipstation = true,
+      push_to_shipstation: rawPushSS = false,
       project_id = null,
     } = req.body || {};
+    // Only allow push if user has manual_push_ss permission or is super_admin
+    const canPushSS = postUser.role === 'super_admin' || (postUser.permissions || []).includes('manual_push_ss');
+    const push_to_shipstation = canPushSS && rawPushSS;
 
     if (!ship_to_name || !ship_to_address?.address1 || !ship_to_address?.suburb || !ship_to_address?.state || !ship_to_address?.postcode || !ship_to_address?.country) {
       return res.status(400).json({ error: 'Missing required recipient/address fields' });
