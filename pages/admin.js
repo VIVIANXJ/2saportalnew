@@ -46,14 +46,14 @@ async function loadSkuNames() {
 
 // Global products cache (keyed by project filter string)
 let productsCache = {};
-async function loadProducts(allowedProjects) {
-  // allowedProjects: array of project IDs ([] = no restriction)
-  const cacheKey = (allowedProjects || []).sort().join(',') || '__all__';
+async function loadProducts(allowedBillingGroups) {
+  // allowedBillingGroups: array of billing group strings ([] = no restriction)
+  const cacheKey = (allowedBillingGroups || []).sort().join(',') || '__all__';
   if (productsCache[cacheKey]) return productsCache[cacheKey];
   try {
     const params = new URLSearchParams({ limit: '2000' });
-    if (allowedProjects && allowedProjects.length > 0) {
-      params.set('projects', allowedProjects.join(','));
+    if (allowedBillingGroups && allowedBillingGroups.length > 0) {
+      params.set('billing_groups', allowedBillingGroups.join(','));
     }
     const res = await fetch(`/api/products?${params}`);
     const json = await res.json();
@@ -583,14 +583,25 @@ function InventoryView({ token }) {
   const [invSearch,  setInvSearch]  = useState('');
   const [invSortBy,  setInvSortBy]  = useState('sku_asc');
   const [invSearchMode, setInvSearchMode] = useState('both'); // 'sku' | 'name' | 'both'
-  const [skuNames,   setSkuNames]   = useState({});
+  const [invBillingFilter, setInvBillingFilter] = useState('all'); // 'all' or billing group name
+  const [skuNames,      setSkuNames]      = useState({});
+  const [skuBillingMap, setSkuBillingMap] = useState({}); // sku -> billing_group
   const [lastSync,   setLastSync]   = useState(null);   // { synced_at, sku_count, status }
   const [fromCache,  setFromCache]  = useState(false);
   const PAGE_SIZE = 100;
 
-  // Load SKU names (uses global cache)
+  // Load SKU names + billing groups
   useEffect(() => {
     loadSkuNames().then(names => setSkuNames(names));
+    // Load billing group mapping for all SKUs
+    fetch('/api/products?limit=2000', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(j => {
+        const map = {};
+        (j.data || []).forEach(p => { if (p.billing_group) map[p.sku] = p.billing_group; });
+        setSkuBillingMap(map);
+      })
+      .catch(() => {});
   }, []);
 
   // Auto-load from cache on mount
@@ -683,9 +694,10 @@ function InventoryView({ token }) {
     });
 
     const WLABELS = { ECCANG: '2SA Warehouse', C0000001174: 'JD-SYD1', C0000001901: 'JD-MEL1' };
-    const header = ['SKU', 'Product Name', 'Warehouse', 'Sellable'];
+    const header = ['SKU', 'Billing Group', 'Product Name', 'Warehouse', 'Sellable'];
     const csvRows = [header, ...rows.map(r => [
       r.sku,
+      skuBillingMap[r.sku] || '',
       r.name,
       WLABELS[r.wh] || r.wh,
       r.data.sellable || 0,
@@ -773,6 +785,13 @@ function InventoryView({ token }) {
             <option value="sellable_desc">Sellable High-Low</option>
             <option value="sellable_asc">Sellable Low-High</option>
           </select>
+          <select value={invBillingFilter} onChange={e => { setInvBillingFilter(e.target.value); setInvCurPage(1); }}
+            style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${invBillingFilter !== 'all' ? C.accent : C.border}`, fontSize: 12, background: C.bg, color: invBillingFilter !== 'all' ? C.accent : C.muted, maxWidth: 220 }}>
+            <option value="all">All Billing Groups</option>
+            {[...new Set(Object.values(skuBillingMap))].sort().map(bg => (
+              <option key={bg} value={bg}>{bg}</option>
+            ))}
+          </select>
           <button onClick={exportCsv} style={{
             marginLeft: 'auto', padding: '7px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
             border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontWeight: 600,
@@ -799,6 +818,8 @@ function InventoryView({ token }) {
         // Apply filters
         const qSku = invSearch.trim().toLowerCase();
         const filteredItems = items.filter(item => {
+          // Billing group filter
+          if (invBillingFilter !== 'all' && skuBillingMap[item.sku] !== invBillingFilter) return false;
           if (!qSku) return true;
           const skuMatch  = (item.sku || '').toLowerCase().includes(qSku);
           const nameMatch = (skuNames[item.sku] || '').toLowerCase().includes(qSku);
@@ -840,7 +861,7 @@ function InventoryView({ token }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: C.surfaceAlt }}>
-                    {['SKU', 'Name', 'Warehouse', 'Sellable'].map(h => (
+                    {['SKU', 'Billing Group', 'Name', 'Warehouse', 'Sellable'].map(h => (
                       <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                     ))}
                   </tr>
@@ -854,6 +875,13 @@ function InventoryView({ token }) {
                       <tr key={i} style={{ borderBottom: `1px solid ${C.border}`, borderTop: isFirst && i > 0 ? `2px solid ${C.border}` : 'none' }}>
                         <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12, opacity: isFirst ? 1 : 0.3 }}>
                           {isFirst ? row.sku : ''}
+                        </td>
+                        <td style={{ padding: '8px 14px', fontSize: 11, color: C.muted, opacity: isFirst ? 1 : 0 }}>
+                          {isFirst && skuBillingMap[row.sku] ? (
+                            <span style={{ background: C.surfaceAlt, padding: '2px 8px', borderRadius: 10, fontSize: 11, whiteSpace: 'nowrap' }}>
+                              {skuBillingMap[row.sku]}
+                            </span>
+                          ) : ''}
                         </td>
                         <td style={{ padding: '8px 14px', fontSize: 12, color: C.muted, opacity: isFirst ? 1 : 0 }}>
                           {isFirst ? (skuNames[row.sku] || '') : ''}
@@ -1223,7 +1251,7 @@ function getTrackingUrl(carrier, trackingNumber) {
 }
 
 // ── Manual Order Management ────────────────────────────────────
-function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) {
+function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroups }) {
   const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
   const canViewAll = isSuperAdmin || (userPerms || []).includes('view_all_orders');
   const [orders,    setOrders]    = useState([]);
@@ -1673,7 +1701,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                         <SkuDropdown
                           sku={item.sku}
                           productName={item.product_name}
-                          allowedProjects={allowedProjects}
+                          allowedBillingGroups={allowedBillingGroups}
                           onChange={(sku, name) => {
                             setItem(i, 'sku', sku);
                             if (name) setItem(i, 'product_name', name);
@@ -1730,7 +1758,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
 
 
 // ── Manual Order Bulk Upload ───────────────────────────────────
-function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects }) {
+function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedBillingGroups }) {
   const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const [csvText,   setCsvText]   = useState('');
   const [preview,       setPreview]       = useState([]);
@@ -1982,7 +2010,7 @@ function ManualOrderBulkUpload({ token, userPerms, isSuperAdmin, allowedProjects
 
 
 // ── SKU Dropdown — searchable product selector ─────────────────
-function SkuDropdown({ sku, productName, onChange, allowedProjects, onStockInfo }) {
+function SkuDropdown({ sku, productName, onChange, allowedBillingGroups, onStockInfo }) {
   const [query,    setQuery]    = useState(sku || '');
   const [options,  setOptions]  = useState([]);
   const [open,     setOpen]     = useState(false);
@@ -1993,13 +2021,13 @@ function SkuDropdown({ sku, productName, onChange, allowedProjects, onStockInfo 
 
   // Load products + stock cache
   useEffect(() => {
-    loadProducts(allowedProjects || []).then(prods => {
+    loadProducts(allowedBillingGroups || []).then(prods => {
       setAllProds(prods);
       // Pre-load stock for visible products
       const skus = prods.map(p => p.sku);
       checkStock(skus).then(s => setStock(s));
     });
-  }, [JSON.stringify(allowedProjects)]);
+  }, [JSON.stringify(allowedBillingGroups)]);
 
   // 검색어 변경 시 필터링
   useEffect(() => {
@@ -2088,7 +2116,7 @@ function SkuDropdown({ sku, productName, onChange, allowedProjects, onStockInfo 
   );
 }
 
-function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) {
+function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedBillingGroups }) {
   const canPushSS = isSuperAdmin || (userPerms || []).includes('manual_push_ss');
   const emptyItem = { sku: '', product_name: '', quantity: 1, price: '' };
   const [form, setForm] = useState({
@@ -2119,10 +2147,19 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
   useEffect(() => {
     if (canPushSS) setField('push_to_shipstation', true);
   }, [canPushSS]);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState('');
-  const [result,    setResult]    = useState(null);
-  const [itemStock, setItemStock] = useState({}); // sku → sellable qty
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [result,       setResult]       = useState(null);
+  const [itemStock,    setItemStock]    = useState({});
+  const [skuBillingMap, setSkuBillingMap] = useState({});
+
+  useEffect(() => {
+    loadProducts(allowedBillingGroups || []).then(prods => {
+      const map = {};
+      prods.forEach(p => { if (p.billing_group) map[p.sku] = p.billing_group; });
+      setSkuBillingMap(map);
+    });
+  }, [JSON.stringify(allowedBillingGroups)]); // sku → sellable qty
 
   // 当 SKU 变化时查询库存
   const updateStockForItem = async (sku) => {
@@ -2147,16 +2184,23 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
       const latestStock = skus.length > 0 ? await checkStock(skus) : {};
       setItemStock(latestStock);
 
-      // 判断是否有缺货 SKU
+      // 判断是否有缺货 SKU — 直接阻止提交
       const outOfStock = form.items.filter(it =>
         it.sku && latestStock[it.sku] !== undefined && latestStock[it.sku] !== null &&
         latestStock[it.sku] < Number(it.quantity)
       );
-      const isBackorder = outOfStock.length > 0;
+
+      if (outOfStock.length > 0) {
+        const msgs = outOfStock.map(it =>
+          `${it.sku}: need ${it.quantity}, only ${latestStock[it.sku]} available`
+        ).join('\n');
+        setError(`❌ Insufficient stock — order cannot be placed:\n${msgs}`);
+        setLoading(false);
+        return;
+      }
 
       const payload = {
         reference_no: form.reference_no,
-        ...(isBackorder ? { status: 'backorder' } : {}),
         client: form.client,
         ship_to_name: form.ship_to_name,
         customer_company: form.customer_company,
@@ -2173,7 +2217,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
         notes: form.notes,
         push_to_shipstation: canPushSS && form.push_to_shipstation,
         ...(form.project_id    ? { project_id:    form.project_id }    : {}),
-        ...(form.billing_group ? { billing_group: form.billing_group } : {}),
+        ...((() => { const bgs = [...new Set(form.items.map(it => skuBillingMap[it.sku]).filter(Boolean))]; return bgs.length > 0 ? { billing_group: bgs[0] } : {}; })()),
         items: form.items.map(it => ({
           sku: it.sku,
           product_name: it.product_name,
@@ -2226,12 +2270,21 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
           <select value={form.project_id} onChange={e => setField('project_id', e.target.value)}
             style={{ padding: '10px 12px', border: `1px solid ${form.project_id ? C.accent : C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: form.project_id ? C.text : C.muted }}>
             <option value="">— Select Project (optional) —</option>
-            {(allowedProjects.length > 0
-              ? projects.filter(p => allowedProjects.includes(p.id))
+            {(allowedBillingGroups.length > 0
+              ? projects.filter(p => allowedBillingGroups.includes(p.billing_group))
               : projects
             ).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <input value={form.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="Billing Group (optional)" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          {/* Billing Group - 자동으로 SKU에서 읽어옴 */}
+          {form.items.some(it => it.sku) && (() => {
+            const bgs = [...new Set(form.items.map(it => it.sku && skuBillingMap[it.sku]).filter(Boolean))];
+            return bgs.length > 0 ? (
+              <div style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.surfaceAlt, color: C.muted }}>
+                <span style={{ fontSize: 11, color: C.muted }}>Billing Group: </span>
+                {bgs.map(bg => <span key={bg} style={{ marginRight: 6, fontWeight: 600, color: C.text }}>{bg}</span>)}
+              </div>
+            ) : null;
+          })()}
           <input value={form.customer_company} onChange={e => setField('customer_company', e.target.value)} placeholder="Company" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <select value={form.client} onChange={e => setField('client', e.target.value)} style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: '#fff', color: C.text }}>
             <option value="ASL">ASL</option>
@@ -2295,7 +2348,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedProjects }) 
               <SkuDropdown
                 sku={it.sku}
                 productName={it.product_name}
-                allowedProjects={allowedProjects}
+                allowedBillingGroups={allowedBillingGroups}
                 onChange={(sku, name) => {
                   setItem(idx, 'sku', sku);
                   setItem(idx, 'product_name', name);
@@ -3137,30 +3190,30 @@ const ALL_PERMISSIONS = [
 ];
 
 function UserManagement({ token, user: currentUser }) {
-  const [users,    setUsers]    = useState([]);
-  const [projects, setProjects] = useState([]); // for allowed_projects picker
-  const [loading,  setLoading]  = useState(false);
+  const [users,         setUsers]         = useState([]);
+  const [billingGroups, setBillingGroups] = useState([]);
+  const [loading,       setLoading]       = useState(false);
   const [msg,      setMsg]      = useState('');
   const [editId,   setEditId]   = useState(null);
   const [editPerms, setEditPerms] = useState([]);
   const [editActive, setEditActive] = useState(true);
   const [editNotes, setEditNotes] = useState('');
-  const [editAllowedProjects, setEditAllowedProjects] = useState([]); // [] = no restriction
-  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '', allowed_projects: [] });
+  const [editAllowedBillingGroups, setEditAllowedBillingGroups] = useState([]); // [] = no restriction
+  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '', allowed_billing_groups: [] });
   const [showNew,  setShowNew]  = useState(false);
   const [saving,   setSaving]   = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [uRes, pRes] = await Promise.all([
-        fetch('/api/auth/users',  { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/projects',    { headers: { Authorization: `Bearer ${token}` } }),
+      const [uRes, bgRes] = await Promise.all([
+        fetch('/api/auth/users',     { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/billing-groups', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
-      const uJson = await uRes.json();
-      const pJson = await pRes.json();
-      setUsers(uJson.data    || []);
-      setProjects(pJson.data || []);
+      const uJson  = await uRes.json();
+      const bgJson = await bgRes.json();
+      setUsers(uJson.data        || []);
+      setBillingGroups(bgJson.data || []);
     } finally { setLoading(false); }
   };
 
@@ -3171,7 +3224,7 @@ function UserManagement({ token, user: currentUser }) {
     setEditPerms(u.permissions || []);
     setEditActive(u.active !== false);
     setEditNotes(u.notes || '');
-    setEditAllowedProjects(u.allowed_projects || []);
+    setEditAllowedBillingGroups(u.allowed_billing_groups || []);
     setMsg('');
   };
 
@@ -3181,7 +3234,7 @@ function UserManagement({ token, user: currentUser }) {
       const res  = await fetch(`/api/auth/users?id=${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes, allowed_projects: editAllowedProjects }),
+        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes, allowed_billing_groups: editAllowedBillingGroups }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
@@ -3355,40 +3408,55 @@ function UserManagement({ token, user: currentUser }) {
                 {/* Project access restriction */}
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6 }}>
-                    PROJECT ACCESS
+                    BILLING GROUP ACCESS
                     <span style={{ fontWeight: 400, marginLeft: 8, color: C.muted }}>
-                      {editAllowedProjects.length === 0 ? '(No restriction — can see all SKUs)' : `(Restricted to ${editAllowedProjects.length} project${editAllowedProjects.length>1?'s':''})`}
+                      {editAllowedBillingGroups.length === 0
+                        ? '(No restriction — can see all SKUs)'
+                        : `(Restricted to Billing Group: ${editAllowedBillingGroups.join(', ')})`}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {projects.filter(p => p.active).map(proj => {
-                      const isAllowed = editAllowedProjects.includes(proj.id);
-                      return (
-                        <button key={proj.id}
-                          onClick={() => setEditAllowedProjects(prev =>
-                            prev.includes(proj.id) ? prev.filter(id => id !== proj.id) : [...prev, proj.id]
-                          )}
-                          style={{
-                            padding: '5px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: isAllowed ? 600 : 400,
-                            border: `1px solid ${isAllowed ? C.accent : C.border}`,
-                            background: isAllowed ? C.accentDim : C.surface,
-                            color: isAllowed ? C.accent : C.muted,
-                          }}>
-                          {isAllowed ? '✓ ' : ''}{proj.name}
-                          <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>{proj.sku_count || 0} SKUs</span>
-                        </button>
-                      );
-                    })}
-                    {editAllowedProjects.length > 0 && (
-                      <button onClick={() => setEditAllowedProjects([])}
-                        style={{ padding: '5px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', border: `1px solid ${C.border}`, background: 'none', color: C.danger }}>
-                        ✕ Clear all
-                      </button>
-                    )}
-                    {projects.filter(p => p.active).length === 0 && (
-                      <span style={{ fontSize: 12, color: C.muted }}>No projects yet. Create projects first in Project Management.</span>
-                    )}
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+                    Select which Billing Groups this user can access. Leave empty for no restriction.
                   </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <input placeholder="Search billing groups..." onChange={e => {
+                        const q = e.target.value.toLowerCase();
+                        document.querySelectorAll('button[data-bgname]').forEach(btn => {
+                          btn.style.display = btn.dataset.bgname.toLowerCase().includes(q) ? '' : 'none';
+                        });
+                      }}
+                      style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, width: 280, background: C.bg, color: C.text, marginBottom: 8 }}
+                    />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 220, overflowY: 'auto', padding: '4px 0' }}>
+                      {billingGroups.map(bg => {
+                        const isAllowed = editAllowedBillingGroups.includes(bg.name);
+                        return (
+                          <button key={bg.id} data-bgname={bg.name}
+                            onClick={() => setEditAllowedBillingGroups(prev =>
+                              prev.includes(bg.name) ? prev.filter(b => b !== bg.name) : [...prev, bg.name]
+                            )}
+                            style={{
+                              padding: '4px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: isAllowed ? 700 : 400,
+                              border: `1px solid ${isAllowed ? C.accent : C.border}`,
+                              background: isAllowed ? C.accentDim : C.surface,
+                              color: isAllowed ? C.accent : C.muted,
+                              whiteSpace: 'nowrap',
+                            }}>
+                            {isAllowed ? '✓ ' : ''}{bg.name}
+                          </button>
+                        );
+                      })}
+                      {billingGroups.length === 0 && (
+                        <span style={{ fontSize: 12, color: C.muted }}>Loading billing groups...</span>
+                      )}
+                    </div>
+                  </div>
+                  {editAllowedBillingGroups.length > 0 && (
+                    <button onClick={() => setEditAllowedBillingGroups([])}
+                      style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', border: `1px solid ${C.border}`, background: 'none', color: C.danger }}>
+                      ✕ Clear all ({editAllowedBillingGroups.length} selected)
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -3536,9 +3604,9 @@ export default function AdminPage() {
         {/* Content */}
         <main style={{ flex: 1, padding: '32px 32px' }}>
           {section === 'orders'        && can('eccang_orders')   && <OrderSearch          token={token} />}
-          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
-          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
-          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedProjects={user?.allowed_projects || []} />}
+          {section === 'manual_orders'  && can('manual_orders')   && <ManualOrderManage    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
+          {section === 'manual_create'  && can('manual_create')   && <ManualOrderCreate    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
+          {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
           {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
           {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
