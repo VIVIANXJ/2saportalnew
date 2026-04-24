@@ -1225,6 +1225,7 @@ function getTrackingUrl(carrier, trackingNumber) {
 // ── Manual Order Management ────────────────────────────────────
 function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) {
   const canDo = (perm) => isSuperAdmin || (userPerms || []).includes(perm);
+  const canViewAll = isSuperAdmin || (userPerms || []).includes('view_all_orders');
   const [orders,    setOrders]    = useState([]);
   const [allOrders, setAllOrders] = useState([]); // 全量，用于本地 fuzzy filter
   const [loading,   setLoading]   = useState(false);
@@ -1257,7 +1258,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
       // 拉全量数据（pageSize 500），本地做 fuzzy filter，不依赖服务端分页
       const params = new URLSearchParams({ page: 1, pageSize: 500 });
       if (q.trim()) params.set('q', q.trim());
-      const res  = await fetch(`/api/orders/manual?${params}`);
+      const res  = await fetch(`/api/orders/manual?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       const data = json.data || [];
       setAllOrders(data);
@@ -1489,7 +1490,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: C.surfaceAlt }}>
-                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Products', 'Tracking', 'Created', ...(isSuperAdmin ? ['Placed By'] : []), 'Actions'].map(h => (
+                  {['Order No.', 'Reference', 'Status', 'Recipient', 'Products', 'Tracking', 'Created', ...(canViewAll ? ['Placed By'] : []), 'Actions'].map(h => (
                     <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                   ))}
                 </tr>
@@ -1524,7 +1525,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedProjects }) 
                       })() : <span style={{ color: C.border }}>—</span>}
                     </td>
                     <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted }}>{order.created_at?.slice(0,10)}</td>
-                    {isSuperAdmin && (
+                    {canViewAll && (
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted, fontFamily: 'monospace' }}>{order.created_by_username || '—'}</td>
                     )}
                     <td style={{ padding: '10px 12px' }}>
@@ -3118,6 +3119,7 @@ const ALL_PERMISSIONS = [
   { key: 'manual_sync_ss',      label: 'Sync from ShipStation',      group: 'Orders' },
   { key: 'manual_sync_eccang',  label: 'Sync Tracking from ECCANG',  group: 'Orders' },
   { key: 'manual_push_ss',      label: 'Push Orders to ShipStation', group: 'Orders' },
+  { key: 'view_all_orders',      label: 'View All Orders (not just own)', group: 'Orders' },
   // Standard Orders
   { key: 'eccang_orders',       label: 'View ECCANG Orders',          group: 'Standard Orders' },
   { key: 'jdl_orders',          label: 'View JDL Orders',             group: 'Standard Orders' },
