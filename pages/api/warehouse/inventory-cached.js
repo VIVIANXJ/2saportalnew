@@ -22,16 +22,25 @@ export default async function handler(req, res) {
     // ── Project-based access control ──────────────────────────
     const authHeader      = (req.headers.authorization || '').replace('Bearer ', '');
     const tokenData       = verifyToken(authHeader);
-    const allowedProjects = tokenData?.allowed_projects || [];
-    const isSuperAdmin    = tokenData?.role === 'super_admin';
+    const allowedBillingGroups = tokenData?.allowed_billing_groups || [];
+    const isSuperAdmin           = tokenData?.role === 'super_admin';
 
-    let allowedSkus = null; // null = no restriction
-    if (!isSuperAdmin && allowedProjects.length > 0) {
-      const { data: projProds } = await supabase
+    // Non-super-admin MUST have allowed_billing_groups to see anything
+    // Empty allowed_billing_groups = no access (not unrestricted)
+    let allowedSkus = null; // null = super admin (unrestricted)
+    if (!isSuperAdmin) {
+      if (allowedBillingGroups.length === 0) {
+        // No billing groups assigned → see nothing
+        return res.status(200).json({ success: true, from_cache: true, last_sync: null, count: 0, data: [], message: 'No billing groups assigned' });
+      }
+      const { data: bgProds } = await supabase
         .from('products')
         .select('sku')
-        .in('project_id', allowedProjects);
-      allowedSkus = (projProds || []).map(p => p.sku);
+        .in('billing_group', allowedBillingGroups);
+      allowedSkus = (bgProds || []).map(p => p.sku);
+      if (allowedSkus.length === 0) {
+        return res.status(200).json({ success: true, from_cache: true, last_sync: null, count: 0, data: [], message: 'No SKUs in assigned billing groups' });
+      }
     }
 
     // ── 1. 读缓存 ─────────────────────────────────────────────
@@ -40,12 +49,8 @@ export default async function handler(req, res) {
       .select('*')
       .order('sku', { ascending: true });
 
-    // Apply SKU restriction if user has project limits
+    // Apply SKU restriction for non-super-admin
     if (allowedSkus !== null) {
-      if (allowedSkus.length === 0) {
-        // No SKUs in allowed projects → return empty
-        return res.status(200).json({ success: true, from_cache: true, last_sync: null, count: 0, data: [] });
-      }
       cacheQuery = cacheQuery.in('sku', allowedSkus);
     }
 
