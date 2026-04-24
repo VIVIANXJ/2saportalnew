@@ -2858,6 +2858,217 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
   );
 }
 
+// ── Billing Group Management ────────────────────────────────────
+function BillingGroupManagement({ token }) {
+  const [groups,     setGroups]     = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [msg,        setMsg]        = useState('');
+  const [showNew,    setShowNew]    = useState(false);
+  const [newName,    setNewName]    = useState('');
+  const [editId,     setEditId]     = useState(null);
+  const [editName,   setEditName]   = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [search,     setSearch]     = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res  = await fetch('/api/billing-groups?all=1', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      setGroups(json.data || []);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    if (!newName.trim()) { setMsg('❌ Name required'); return; }
+    setSaving(true);
+    try {
+      const res  = await fetch('/api/billing-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Created');
+      setShowNew(false);
+      setNewName('');
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const saveEdit = async (id) => {
+    if (!editName.trim()) return;
+    setSaving(true);
+    try {
+      const res  = await fetch(`/api/billing-groups?id=${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: editName.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Saved');
+      setEditId(null);
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setSaving(false); }
+  };
+
+  const toggleActive = async (g) => {
+    try {
+      const res  = await fetch(`/api/billing-groups?id=${g.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ active: !g.active }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg(g.active ? '✅ Deactivated' : '✅ Activated');
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+  };
+
+  const deleteGroup = async (g) => {
+    if (!confirm(`Delete "${g.name}"? This will remove the billing group but won't affect existing products or orders.`)) return;
+    try {
+      const res  = await fetch(`/api/billing-groups?id=${g.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg('✅ Deleted');
+      load();
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+  };
+
+  const inp = { padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text };
+
+  const filtered = groups.filter(g => {
+    if (!showInactive && !g.active) return false;
+    if (search.trim() && !g.name.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Billing Group Management</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowInactive(v => !v)}
+            style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: showInactive ? C.accent : C.muted, fontWeight: showInactive ? 600 : 400 }}>
+            {showInactive ? '👁 Showing all' : '👁 Show inactive'}
+          </button>
+          <button onClick={() => { setShowNew(true); setMsg(''); setNewName(''); }}
+            style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            + New Billing Group
+          </button>
+        </div>
+      </div>
+
+      {/* Message */}
+      {msg && (
+        <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
+          {msg}
+        </div>
+      )}
+
+      {/* New group form */}
+      {showNew && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New Billing Group</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && create()}
+              placeholder="e.g. FANTA GAMING 2026"
+              style={{ ...inp, flex: 1 }}
+              autoFocus
+            />
+            <button onClick={create} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              {saving ? '...' : 'Create'}
+            </button>
+            <button onClick={() => setShowNew(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      <input
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search billing groups..."
+        style={{ ...inp, width: '100%', marginBottom: 12, boxSizing: 'border-box' }}
+      />
+
+      {/* Stats */}
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>
+        {filtered.length} billing group{filtered.length !== 1 ? 's' : ''}
+        {!showInactive && groups.some(g => !g.active) && (
+          <span style={{ marginLeft: 8 }}>({groups.filter(g => !g.active).length} inactive hidden)</span>
+        )}
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: C.muted }}>Loading...</div>
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 14 }}>No billing groups found</div>
+          ) : (
+            filtered.map((g, i) => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : 'none', opacity: g.active ? 1 : 0.5 }}>
+                {editId === g.id ? (
+                  <>
+                    <input
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && saveEdit(g.id)}
+                      style={{ ...inp, flex: 1 }}
+                      autoFocus
+                    />
+                    <button onClick={() => saveEdit(g.id)} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => setEditId(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer', color: C.muted }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{g.name}</span>
+                      {!g.active && <span style={{ marginLeft: 8, fontSize: 11, color: C.muted, background: C.surfaceAlt, padding: '1px 6px', borderRadius: 8 }}>inactive</span>}
+                    </div>
+                    <button onClick={() => { setEditId(g.id); setEditName(g.name); setMsg(''); }}
+                      style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      ✏️ Edit
+                    </button>
+                    <button onClick={() => toggleActive(g)}
+                      style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: g.active ? C.muted : C.success }}>
+                      {g.active ? '🙈 Deactivate' : '✓ Activate'}
+                    </button>
+                    <button onClick={() => deleteGroup(g)}
+                      style={{ background: 'none', border: `1px solid #FECACA`, borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: C.danger }}>
+                      🗑 Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Project Management ─────────────────────────────────────────
 function ProjectManagement({ token }) {
   const [projects,   setProjects]   = useState([]);
@@ -3537,8 +3748,9 @@ export default function AdminPage() {
       items: [
         { key: 'locations',    label: 'Locations',          perm: 'locations' },
         { key: 'products',     label: 'Products',           perm: 'products_view' },
-        { key: 'project_mgmt', label: 'Project Management', perm: 'user_management' },
-        { key: 'users',        label: 'User Management',    perm: 'user_management' },
+        { key: 'project_mgmt',  label: 'Project Management',        perm: 'user_management' },
+        { key: 'billing_mgmt',  label: 'Billing Group Management',  perm: 'user_management' },
+        { key: 'users',         label: 'User Management',            perm: 'user_management' },
       ],
     }] : []),
   ].map(group => ({
@@ -3614,7 +3826,8 @@ export default function AdminPage() {
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
           {section === 'locations'      && can('locations')         && <LocationManagement   token={token} />}
           {section === 'products'       && can('products_view')    && <ProductManagement    token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} />}
-          {section === 'project_mgmt'  && can('user_management') && <ProjectManagement    token={token} />}
+          {section === 'project_mgmt'  && can('user_management') && <ProjectManagement       token={token} />}
+          {section === 'billing_mgmt'  && can('user_management') && <BillingGroupManagement token={token} />}
           {section === 'users'          && can('user_management') && <UserManagement       token={token} user={user} />}
         </main>
       </div>
