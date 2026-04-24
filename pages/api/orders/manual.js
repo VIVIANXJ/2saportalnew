@@ -8,6 +8,34 @@ function getSupabase() {
   );
 }
 
+// 下单成功后从 inventory_cache 扣减 sellable 数量
+async function deductStock(supabase, items) {
+  if (!items || items.length === 0) return;
+  for (const item of items) {
+    if (!item.sku || !item.quantity) continue;
+    const qty = Number(item.quantity);
+    if (qty <= 0) continue;
+    // 按比例从各仓库扣减（优先从有库存的仓库扣）
+    const { data: rows } = await supabase
+      .from('inventory_cache')
+      .select('id, sku, warehouse_code, sellable')
+      .eq('sku', item.sku)
+      .gt('sellable', 0)
+      .order('sellable', { ascending: false });
+
+    let remaining = qty;
+    for (const row of (rows || [])) {
+      if (remaining <= 0) break;
+      const deduct = Math.min(remaining, row.sellable);
+      await supabase
+        .from('inventory_cache')
+        .update({ sellable: row.sellable - deduct })
+        .eq('id', row.id);
+      remaining -= deduct;
+    }
+  }
+}
+
 function generateManualOrderNumber() {
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -103,22 +131,29 @@ export default async function handler(req, res) {
     const to = from + pageSize - 1;
 
     // ── Access control ────────────────────────────────────────
-    const authHeader      = (req.headers.authorization || '').replace('Bearer ', '');
-    const tokenData       = verifyToken(authHeader);
-    const allowedProjects = tokenData?.allowed_projects || [];
-    const isSuperAdmin    = tokenData?.role === 'super_admin';
-    const currentUsername = tokenData?.sub || null;
+    const authHeader           = (req.headers.authorization || '').replace('Bearer ', '');
+    const tokenData            = verifyToken(authHeader);
+    const allowedBillingGroups = tokenData?.allowed_billing_groups || [];
+    const isSuperAdmin         = tokenData?.role === 'super_admin';
+    const currentUsername      = tokenData?.sub || null;
 
-    // Project-based filter: restrict to allowed projects
-    // Primary: filter by order.project_id directly
-    // Fallback: also include orders whose items contain allowed SKUs (for legacy orders without project_id)
-    let allowedSkus = null;
-    if (!isSuperAdmin && allowedProjects.length > 0) {
-      const { data: projProds } = await supabase
-        .from('products')
-        .select('sku')
-        .in('project_id', allowedProjects);
-      allowedSkus = (projProds || []).map(p => p.sku);
+    // Billing-group-based filter
+    // Non-super-admin with no billing groups = no access
+    let allowedSkus = null; // null = unrestricted (super admin only)
+    if (!isSuperAdmin) {
+      if (allowedBillingGroups.length === 0) {
+        // No billing groups → return empty (unless view_all_orders)
+        const hasViewAll = (tokenData?.permissions || []).includes('view_all_orders');
+        if (!hasViewAll) {
+          allowedSkus = []; // will be handled by project filter below
+        }
+      } else {
+        const { data: bgProds } = await supabase
+          .from('products')
+          .select('sku')
+          .in('billing_group', allowedBillingGroups);
+        allowedSkus = (bgProds || []).map(p => p.sku);
+      }
     }
 
     // First fetch all matching orders (with items) then do fuzzy filter in JS
@@ -180,15 +215,12 @@ export default async function handler(req, res) {
       });
       data = [...data, ...itemMatches];
     }
-    // Project access filter
-    if (!isSuperAdmin && allowedProjects.length > 0) {
+    // Billing group access filter
+    if (!isSuperAdmin && allowedBillingGroups.length > 0) {
       data = data.filter(order =>
         // Match by order.project_id (new orders)
-        (order.project_id && allowedProjects.includes(order.project_id)) ||
-        // Fallback: match by SKU for legacy orders without project_id
-        (!order.project_id && allowedSkus !== null && (
-          (order.order_items || []).some(it => allowedSkus.includes(it.sku))
-        ))
+        // Match by SKU billing group
+        (order.order_items || []).some(it => allowedSkus && allowedSkus.includes(it.sku))
       );
     }
 
@@ -286,6 +318,9 @@ export default async function handler(req, res) {
     }
     const { error: itemError } = await supabase.from('order_items').insert(lineItems);
     if (itemError) return res.status(500).json({ error: itemError.message });
+
+    // 下单成功后立即扣减缓存库存
+    await deductStock(supabase, lineItems);
 
     let shipstation = { pushed: false, reason: 'disabled' };
     if (push_to_shipstation) {
@@ -476,6 +511,8 @@ export default async function handler(req, res) {
 
         if (lineItems.length > 0) {
           await supabase.from('order_items').insert(lineItems);
+          // 下单成功后立即扣减缓存库存
+          await deductStock(supabase, lineItems);
         }
 
         let shipstation = { pushed: false, reason: 'disabled' };
