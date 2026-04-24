@@ -223,9 +223,7 @@ export default async function handler(req, res) {
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one line item is required' });
     }
-    if (!['Project', 'Warehouse'].includes(client)) {
-      return res.status(400).json({ error: 'client must be Project or Warehouse' });
-    }
+    // client is mapped to ASL if not valid — no hard validation needed
 
     const order_number = generateManualOrderNumber();
     const orderPayload = {
@@ -424,7 +422,7 @@ export default async function handler(req, res) {
           reference_no: reference_no || null,
           order_type: 'standard',
           status: 'pending',
-          client: ['Project','Warehouse'].includes(client) ? client : 'Project',
+          client: ['ASL','CCEP'].includes(client) ? client : 'ASL',
           warehouse: 'BOTH',
           ship_to_name,
           ship_to_address: { ...ship_to_address, country: ship_to_address.country || 'AU' },
