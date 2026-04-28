@@ -3386,6 +3386,45 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
         </div>
       </div>
 
+      {/* Bulk upload drop zone */}
+      {showBulk && (
+        <div style={{ background: C.surface, border: `2px dashed ${C.accent}`, borderRadius: 12, padding: 24, marginBottom: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🖼️</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>Bulk Image Upload</div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>
+            Filename must match SKU exactly (e.g. <span style={{ fontFamily: 'monospace' }}>2SAASL100-A4.jpg</span>).<br/>
+            Underscores treated as hyphens. JPG, PNG, WebP, GIF. Max 5MB per file.
+          </div>
+          <label style={{ cursor: 'pointer' }}>
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+              onChange={e => handleBulkUpload(e.target.files)} />
+            <span style={{ background: C.accent, color: '#fff', padding: '10px 24px', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+              Select Images
+            </span>
+          </label>
+          <button onClick={() => setShowBulk(false)} style={{ marginLeft: 12, background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Bulk upload progress */}
+      {bulkUploading && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+            ⏳ Uploading images... {bulkProgress.done} / {bulkProgress.total}
+          </div>
+          <div style={{ height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+            <div style={{ height: '100%', background: C.accent, width: `${bulkProgress.total > 0 ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%`, transition: 'width 0.3s' }} />
+          </div>
+          {bulkProgress.errors.length > 0 && (
+            <div style={{ fontSize: 11, color: C.danger }}>
+              {bulkProgress.errors.slice(-3).map((e, i) => <div key={i}>⚠ {e}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
       {msg && (
         <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
           {msg}
