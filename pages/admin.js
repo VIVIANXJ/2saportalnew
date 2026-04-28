@@ -2844,7 +2844,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedBillingGroup
           <input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         </div>
-        <textarea value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+        <textarea value={form.notes} onChange={e => setField('instructions', e.target.value)} placeholder="Instructions" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         <label style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
           <input type="checkbox" checked={form.push_to_shipstation && canPushSS} disabled={!canPushSS} onChange={e => setField('push_to_shipstation', e.target.checked)} />
           Push to ShipStation {!canPushSS && <span style={{fontSize:11,color:C.muted}}>(no permission)</span>}
@@ -2995,7 +2995,7 @@ function LocationManagement({ token }) {
   const [saving,    setSaving]    = useState(false);
   const PAGE_SIZE = 50;
 
-  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '', special_instruction: '', receiver_code: '', mobile: '', billing_group: '' };
+  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', instructions: '', special_instruction: '', receiver_code: '', mobile: '', billing_group: '' };
   const [form, setForm] = useState(emptyForm);
   const setField = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -3045,7 +3045,7 @@ function LocationManagement({ token }) {
   const startEdit = (loc) => {
     setForm({ name: loc.name, company: loc.company||'', address1: loc.address1||'', address2: loc.address2||'',
       suburb: loc.suburb||'', state: loc.state||'', postcode: loc.postcode||'', country: loc.country||'AU',
-      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'', special_instruction: loc.special_instruction||'',
+      phone: loc.phone||'', email: loc.email||'', instructions: loc.instructions||'', special_instruction: loc.special_instruction||'',
       receiver_code: loc.receiver_code||'', mobile: loc.mobile||'', billing_group: loc.billing_group||'' });
     setEditId(loc.id);
     setShowForm(true);
@@ -3100,7 +3100,7 @@ function LocationManagement({ token }) {
               </select>
             </div>
             <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.special_instruction || ''} onChange={e => setField('special_instruction', e.target.value)} placeholder="e.g. Call before delivery, tailgate required..." style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div style={{ gridColumn: 'span 3' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div style={{ gridColumn: 'span 3' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.instructions} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={save} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
