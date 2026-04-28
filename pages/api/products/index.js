@@ -18,7 +18,7 @@ export default async function handler(req, res) {
     if (limit) {
       let query = supabase
         .from('products')
-        .select('id, sku, product_name, project_id, billing_group')
+        .select('id, sku, product_name, project_id, billing_group, image_url')
         .eq('active', true)
         .order('sku', { ascending: true })
         .limit(parseInt(limit));
@@ -40,7 +40,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('products')
-      .select('id, sku, product_name, description, active, source, project_id, billing_group', { count: 'exact' })
+      .select('id, sku, product_name, description, active, source, project_id, billing_group, image_url', { count: 'exact' })
       .order('sku', { ascending: true })
       .range(from, to);
 
