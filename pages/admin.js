@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 
+// ETA by state (days from dispatch)
+const ETA_BY_STATE = {
+  'NSW': 5, 'VIC': 5, 'QLD': 5, 'SA': 6,
+  'WA': 9, 'TAS': 7, 'NT': 8, 'ACT': 4,
+};
+
 // Global stock cache — SKU → total sellable (summed across warehouses)
 let stockCache = {};      // { sku: sellableQty }
 let stockCacheLoaded = false;
@@ -1936,6 +1942,48 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
         }} style={{ background: '#7C3AED', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           📦 Sync from ECCANG
         </button>}
+        {/* Export Orders */}
+        {searched && allOrders.length > 0 && (
+          <button onClick={() => {
+            const rows = filteredOrders;
+            const header = ['Order No.', 'Reference', 'Status', 'Billing Group', 'Recipient', 'Company', 'Address', 'Suburb', 'State', 'Postcode', 'Phone', 'Email', 'Products', 'Tracking', 'Carrier', 'Created', 'Placed By'];
+            const csvRows = [header, ...rows.map(o => [
+              o.order_number,
+              o.reference_no || '',
+              o.status,
+              o.billing_group || '',
+              o.ship_to_name || '',
+              o.customer_company || '',
+              o.ship_to_address?.address1 || '',
+              o.ship_to_address?.suburb || '',
+              o.ship_to_address?.state || '',
+              o.ship_to_address?.postcode || '',
+              o.customer_phone || '',
+              o.customer_email || '',
+              (o.order_items || []).map(it => `${it.sku}×${it.quantity}`).join('; '),
+              o.tracking_number || '',
+              o.carrier || '',
+              o.created_at?.slice(0, 10) || '',
+              o.created_by_username || '',
+            ])];
+            const csv = csvRows.map(row =>
+              row.map(v => (String(v).includes(',') || String(v).includes('"') || String(v).includes('
+'))
+                ? `"${String(v).replace(/"/g, '""')}"` : v
+              ).join(',')
+            ).join('
+');
+            const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: '10px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer', color: C.text, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+            ⬇️ Export CSV
+          </button>
+        )}
       </div>
 
       {saveMsg && !modalOrder && (
@@ -2766,7 +2814,14 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedBillingGroup
             <option value="DE">DE — Germany</option>
             <option value="FR">FR — France</option>
           </select>
-          <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+          <div>
+            <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, width: '100%' }} />
+            {form.state && ETA_BY_STATE[form.state.toUpperCase()] && (
+              <div style={{ marginTop: 4, fontSize: 11, color: C.success, fontWeight: 600 }}>
+                📦 Est. delivery: {ETA_BY_STATE[form.state.toUpperCase()]} business days
+              </div>
+            )}
+          </div>
           <input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Address line 1 *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Address line 2" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <LocationDropdown
@@ -2947,7 +3002,7 @@ function LocationManagement({ token }) {
   const [saving,    setSaving]    = useState(false);
   const PAGE_SIZE = 50;
 
-  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '', special_instruction: '' };
+  const emptyForm = { name: '', company: '', address1: '', address2: '', suburb: '', state: '', postcode: '', country: 'AU', phone: '', email: '', notes: '', special_instruction: '', receiver_code: '', mobile: '', billing_group: '' };
   const [form, setForm] = useState(emptyForm);
   const setField = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -2997,7 +3052,8 @@ function LocationManagement({ token }) {
   const startEdit = (loc) => {
     setForm({ name: loc.name, company: loc.company||'', address1: loc.address1||'', address2: loc.address2||'',
       suburb: loc.suburb||'', state: loc.state||'', postcode: loc.postcode||'', country: loc.country||'AU',
-      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'', special_instruction: loc.special_instruction||'' });
+      phone: loc.phone||'', email: loc.email||'', notes: loc.notes||'', special_instruction: loc.special_instruction||'',
+      receiver_code: loc.receiver_code||'', mobile: loc.mobile||'', billing_group: loc.billing_group||'' });
     setEditId(loc.id);
     setShowForm(true);
     setMsg('');
@@ -3072,22 +3128,25 @@ function LocationManagement({ token }) {
         <div style={{ background: C.surface, border: `2px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, marginBottom: 16 }}>{editId ? 'Edit Location' : 'New Location'}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NAME *</label><input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Recipient name" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>COMPANY</label><input value={form.company} onChange={e => setField('company', e.target.value)} placeholder="Company" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>RECEIVER CODE</label><input value={form.receiver_code || ''} onChange={e => setField('receiver_code', e.target.value)} placeholder="e.g. AFHSHED-Albany" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>RECEIVER NAME *</label><input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Receiver name" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>BILLING GROUP</label><input value={form.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="e.g. AFH" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS1 *</label><input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Street address" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS2</label><input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Unit / Floor" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>CITY</label><input value={form.suburb} onChange={e => setField('suburb', e.target.value)} placeholder="City / Suburb" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>STATE NAME</label><input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="NSW / VIC..." style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>POST CODE</label><input value={form.postcode} onChange={e => setField('postcode', e.target.value)} placeholder="Postcode" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>MOBILE</label><input value={form.mobile || ''} onChange={e => setField('mobile', e.target.value)} placeholder="Mobile" style={{ ...iStyle, marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>PHONE</label><input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS LINE 1 *</label><input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Street address" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>ADDRESS LINE 2</label><input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Unit / Floor" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>CONTACT PERSON</label><input value={form.company} onChange={e => setField('company', e.target.value)} placeholder="Contact person" style={{ ...iStyle, marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>EMAIL</label><input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>SUBURB *</label><input value={form.suburb} onChange={e => setField('suburb', e.target.value)} placeholder="Suburb / City" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>STATE *</label><input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="NSW / VIC..." style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>POSTCODE *</label><input value={form.postcode} onChange={e => setField('postcode', e.target.value)} placeholder="Postcode" style={{ ...iStyle, marginTop: 4 }} /></div>
             <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>COUNTRY</label>
               <select value={form.country} onChange={e => setField('country', e.target.value)} style={{ ...iStyle, marginTop: 4 }}>
                 {COUNTRIES.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
-            <div><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>SPECIAL INSTRUCTION</label><input value={form.special_instruction || ''} onChange={e => setField('special_instruction', e.target.value)} placeholder="e.g. Leave at reception, call before delivery..." style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.special_instruction || ''} onChange={e => setField('special_instruction', e.target.value)} placeholder="e.g. Call before delivery, tailgate required..." style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div style={{ gridColumn: 'span 3' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>NOTES</label><input value={form.notes} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={save} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
@@ -3120,7 +3179,7 @@ function LocationManagement({ token }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['Name', 'Company', 'Address', 'Suburb', 'State', 'Postcode', 'Special Instruction', ''].map(h => (
+                {['Receiver Code', 'Receiver Name', 'Address1', 'Billing Group', 'Mobile', ''].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
@@ -3128,13 +3187,11 @@ function LocationManagement({ token }) {
             <tbody>
               {locations.map(loc => (
                 <tr key={loc.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, fontFamily: 'monospace' }}>{loc.receiver_code || '—'}</td>
                   <td style={{ padding: '9px 12px', fontWeight: 600, color: C.text }}>{loc.name}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.company || '—'}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.address1}{loc.address2 ? `, ${loc.address2}` : ''}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.suburb}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.state}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.postcode}</td>
-                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.special_instruction || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.address1 || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.billing_group || '—'}</td>
+                  <td style={{ padding: '9px 12px', color: C.muted, fontSize: 12 }}>{loc.mobile || loc.phone || '—'}</td>
                   <td style={{ padding: '9px 12px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button onClick={() => startEdit(loc)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Edit</button>
