@@ -1966,13 +1966,8 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
               o.created_at?.slice(0, 10) || '',
               o.created_by_username || '',
             ])];
-            const csv = csvRows.map(row =>
-              row.map(v => (String(v).includes(',') || String(v).includes('"') || String(v).includes('
-'))
-                ? `"${String(v).replace(/"/g, '""')}"` : v
-              ).join(',')
-            ).join('
-');
+            const escCsv = v => { const s = String(v === null || v === undefined ? '' : v); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const csv = csvRows.map(r => r.map(escCsv).join(',')).join('\n');
             const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
             const url  = URL.createObjectURL(blob);
             const a    = document.createElement('a');
