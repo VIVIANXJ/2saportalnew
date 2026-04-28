@@ -831,6 +831,11 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>State *</span>
                   <input value={checkoutForm.state} onChange={e => setField('state', e.target.value)} style={inp} placeholder="e.g. NSW" />
+                  {checkoutForm.state && ETA_BY_STATE[checkoutForm.state.trim().toUpperCase()] && (
+                    <span style={{ fontSize: 11, color: C.success, fontWeight: 600, marginTop: 2 }}>
+                      📦 Est. delivery: {ETA_BY_STATE[checkoutForm.state.trim().toUpperCase()]} business days
+                    </span>
+                  )}
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Postcode *</span>
@@ -2809,14 +2814,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedBillingGroup
             <option value="DE">DE — Germany</option>
             <option value="FR">FR — France</option>
           </select>
-          <div>
-            <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, width: '100%' }} />
-            {form.state && ETA_BY_STATE[form.state.toUpperCase()] && (
-              <div style={{ marginTop: 4, fontSize: 11, color: C.success, fontWeight: 600 }}>
-                📦 Est. delivery: {ETA_BY_STATE[form.state.toUpperCase()]} business days
-              </div>
-            )}
-          </div>
+          <input value={form.state} onChange={e => setField('state', e.target.value)} placeholder="State *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address1} onChange={e => setField('address1', e.target.value)} placeholder="Address line 1 *" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.address2} onChange={e => setField('address2', e.target.value)} placeholder="Address line 2" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <LocationDropdown
