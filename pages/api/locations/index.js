@@ -64,11 +64,12 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const { name, company = '', address1 = '', address2 = '', suburb = '',
-            state = '', postcode = '', country = 'AU', phone = '', email = '', notes = '', special_instruction = '' } = req.body || {};
+            state = '', postcode = '', country = 'AU', phone = '', email = '', notes = '', special_instruction = '',
+            receiver_code = '', mobile = '', billing_group = '' } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
     const { data, error } = await supabase
       .from('locations')
-      .insert({ name: name.trim(), company, address1, address2, suburb, state, postcode, country, phone, email, notes, special_instruction })
+      .insert({ name: name.trim(), company, address1, address2, suburb, state, postcode, country, phone, email, notes, special_instruction, receiver_code, mobile, billing_group })
       .select().single();
     if (error) return res.status(500).json({ error: error.message });
     return res.status(201).json({ success: true, data });
@@ -77,7 +78,7 @@ export default async function handler(req, res) {
   if (req.method === 'PATCH') {
     const { id } = req.query;
     if (!id) return res.status(400).json({ error: 'id required' });
-    const fields = ['name','company','address1','address2','suburb','state','postcode','country','phone','email','notes','special_instruction','active'];
+    const fields = ['name','company','address1','address2','suburb','state','postcode','country','phone','email','notes','special_instruction','receiver_code','mobile','billing_group','active'];
     const updates = {};
     fields.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     const { data, error } = await supabase.from('locations').update(updates).eq('id', id).select().single();
