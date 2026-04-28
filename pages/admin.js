@@ -570,6 +570,469 @@ function OrderTypeUpdate({ token }) {
 }
 
 
+// ── Product Catalogue ──────────────────────────────────────────
+function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
+  const [products,    setProducts]    = useState([]);
+  const [stock,       setStock]       = useState({}); // sku → sellable qty
+  const [loading,     setLoading]     = useState(true);
+  const [searchQ,     setSearchQ]     = useState('');
+  const [bgFilter,    setBgFilter]    = useState('all');
+  const [cart,        setCart]        = useState([]); // [{sku, product_name, billing_group, quantity, image_url}]
+  const [showCart,    setShowCart]    = useState(false);
+  const [skuNames,    setSkuNames]    = useState({});
+  const [billingGroups, setBillingGroups] = useState([]);
+
+  // Checkout state (same as Create Order)
+  const [checkingOut, setCheckingOut]   = useState(false);
+  const [checkoutForm, setCheckoutForm] = useState({
+    reference_no: '', ship_to_name: '', customer_company: '', country: 'AU',
+    address1: '', address2: '', suburb: '', state: '', postcode: '',
+    phone: '', email: '', notes: '', project_id: '',
+  });
+  const [checkoutError,  setCheckoutError]  = useState('');
+  const [checkoutResult, setCheckoutResult] = useState(null);
+  const [saving,         setSaving]         = useState(false);
+  const [projects,       setProjects]       = useState([]);
+
+  const cartCount = cart.reduce((s, it) => s + it.quantity, 0);
+
+  useEffect(() => {
+    loadAll();
+  }, []);
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '2000' });
+      if (!isSuperAdmin && allowedBillingGroups.length > 0) {
+        params.set('billing_groups', allowedBillingGroups.join(','));
+      }
+      const [prodRes, stockRes, bgRes, projRes, namesRes] = await Promise.all([
+        fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/warehouse/inventory-cached', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/billing-groups', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/projects', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch('/api/warehouse/sku-names'),
+      ]);
+      const [pj, sj, bgj, prj, nj] = await Promise.all([
+        prodRes.json(), stockRes.json(), bgRes.json(), projRes.json(), namesRes.json(),
+      ]);
+
+      setProducts(pj.data || []);
+      setBillingGroups(bgj.data || []);
+      setProjects(prj.data || []);
+      setSkuNames(nj.data || {});
+
+      // Build stock map
+      const stockMap = {};
+      (sj.data || []).forEach(item => {
+        let total = 0;
+        Object.values(item.warehouses || {}).forEach(w => { total += w.sellable || 0; });
+        stockMap[item.sku] = total;
+      });
+      setStock(stockMap);
+    } catch (e) {
+      console.error('Catalogue load error:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Cart actions
+  const addToCart = (product) => {
+    setCart(prev => {
+      const existing = prev.find(it => it.sku === product.sku);
+      if (existing) {
+        return prev.map(it => it.sku === product.sku ? { ...it, quantity: it.quantity + 1 } : it);
+      }
+      return [...prev, { sku: product.sku, product_name: product.product_name, billing_group: product.billing_group, image_url: product.image_url, quantity: 1 }];
+    });
+  };
+
+  const updateCartQty = (sku, qty) => {
+    if (qty <= 0) { removeFromCart(sku); return; }
+    setCart(prev => prev.map(it => it.sku === sku ? { ...it, quantity: qty } : it));
+  };
+
+  const removeFromCart = (sku) => setCart(prev => prev.filter(it => it.sku !== sku));
+  const clearCart = () => setCart([]);
+
+  // Check stock for cart item
+  const getCartItemStock = (sku) => stock[sku] ?? null;
+  const cartHasStockIssue = cart.some(it => {
+    const avail = getCartItemStock(it.sku);
+    return avail !== null && avail < it.quantity;
+  });
+
+  // Filtered products
+  const filteredProducts = products.filter(p => {
+    if (bgFilter !== 'all' && p.billing_group !== bgFilter) return false;
+    if (!searchQ.trim()) return true;
+    const q = searchQ.toLowerCase();
+    return (p.sku || '').toLowerCase().includes(q) ||
+      (p.product_name || '').toLowerCase().includes(q) ||
+      (skuNames[p.sku] || '').toLowerCase().includes(q);
+  });
+
+  // Checkout submit
+  const submitOrder = async () => {
+    if (cart.length === 0) { setCheckoutError('Cart is empty'); return; }
+    if (!checkoutForm.ship_to_name?.trim()) { setCheckoutError('Recipient name is required'); return; }
+    if (!checkoutForm.address1?.trim()) { setCheckoutError('Address is required'); return; }
+
+    // Stock check
+    const outOfStock = cart.filter(it => {
+      const avail = getCartItemStock(it.sku);
+      return avail !== null && avail < it.quantity;
+    });
+    if (outOfStock.length > 0) {
+      setCheckoutError(`Insufficient stock: ${outOfStock.map(it => `${it.sku} (need ${it.quantity}, have ${getCartItemStock(it.sku)})`).join(', ')}`);
+      return;
+    }
+
+    setSaving(true); setCheckoutError('');
+    try {
+      const billingGroups = [...new Set(cart.map(it => it.billing_group).filter(Boolean))];
+      const payload = {
+        reference_no:    checkoutForm.reference_no,
+        client:          'ASL',
+        ship_to_name:    checkoutForm.ship_to_name,
+        customer_company: checkoutForm.customer_company,
+        customer_phone:  checkoutForm.phone,
+        customer_email:  checkoutForm.email,
+        ship_to_address: {
+          address1: checkoutForm.address1,
+          address2: checkoutForm.address2,
+          suburb:   checkoutForm.suburb,
+          state:    checkoutForm.state,
+          postcode: checkoutForm.postcode,
+          country:  checkoutForm.country || 'AU',
+        },
+        notes:        checkoutForm.notes,
+        project_id:   checkoutForm.project_id || null,
+        billing_group: billingGroups[0] || null,
+        push_to_shipstation: false,
+        items: cart.map(it => ({ sku: it.sku, product_name: it.product_name, quantity: it.quantity })),
+      };
+
+      const res  = await fetch('/api/orders/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Order failed');
+
+      setCheckoutResult(json.data);
+      clearCart();
+      setCheckingOut(false);
+    } catch (e) {
+      setCheckoutError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setField = (k, v) => setCheckoutForm(prev => ({ ...prev, [k]: v }));
+  const inp = { padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text, width: '100%', boxSizing: 'border-box' };
+
+  // ── Checkout panel ────────────────────────────────────────────
+  if (checkingOut) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+          <button onClick={() => setCheckingOut(false)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+            ← Back to catalogue
+          </button>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Checkout</h2>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24, alignItems: 'start' }}>
+          {/* Left: form */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Recipient */}
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Recipient</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1/-1' }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Name *</span>
+                  <LocationDropdown token={token} value={checkoutForm.ship_to_name} placeholder="Recipient name — type to search"
+                    onChange={loc => {
+                      setField('ship_to_name', loc.name || '');
+                      if (!loc._freeInput) {
+                        setField('customer_company', loc.company || '');
+                        setField('address1', loc.address1 || '');
+                        setField('address2', loc.address2 || '');
+                        setField('suburb', loc.suburb || '');
+                        setField('state', loc.state || '');
+                        setField('postcode', loc.postcode || '');
+                        setField('country', loc.country || 'AU');
+                        setField('phone', loc.phone || '');
+                        setField('email', loc.email || '');
+                      }
+                    }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Company</span>
+                  <input value={checkoutForm.customer_company} onChange={e => setField('customer_company', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No.</span>
+                  <input value={checkoutForm.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Phone</span>
+                  <input value={checkoutForm.phone} onChange={e => setField('phone', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Email</span>
+                  <input value={checkoutForm.email} onChange={e => setField('email', e.target.value)} style={inp} />
+                </label>
+              </div>
+            </div>
+
+            {/* Address */}
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Delivery Address</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1/-1' }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Address Line 1 *</span>
+                  <input value={checkoutForm.address1} onChange={e => setField('address1', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1/-1' }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Address Line 2</span>
+                  <input value={checkoutForm.address2} onChange={e => setField('address2', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Suburb *</span>
+                  <LocationDropdown token={token} value={checkoutForm.suburb} placeholder="Suburb — type to search" searchField="suburb"
+                    onChange={loc => {
+                      if (loc._freeInput) { setField('suburb', loc.suburb || ''); }
+                      else {
+                        setField('ship_to_name', loc.name || checkoutForm.ship_to_name);
+                        setField('customer_company', loc.company || '');
+                        setField('address1', loc.address1 || '');
+                        setField('address2', loc.address2 || '');
+                        setField('suburb', loc.suburb || '');
+                        setField('state', loc.state || '');
+                        setField('postcode', loc.postcode || '');
+                        setField('country', loc.country || 'AU');
+                        setField('phone', loc.phone || '');
+                        setField('email', loc.email || '');
+                      }
+                    }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>State *</span>
+                  <input value={checkoutForm.state} onChange={e => setField('state', e.target.value)} style={inp} placeholder="e.g. NSW" />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Postcode *</span>
+                  <input value={checkoutForm.postcode} onChange={e => setField('postcode', e.target.value)} style={inp} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Country</span>
+                  <input value={checkoutForm.country} onChange={e => setField('country', e.target.value)} style={inp} placeholder="AU" />
+                </label>
+              </div>
+            </div>
+
+            {/* Notes + Project */}
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1/-1' }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Notes</span>
+                  <textarea value={checkoutForm.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Project</span>
+                  <select value={checkoutForm.project_id} onChange={e => setField('project_id', e.target.value)} style={inp}>
+                    <option value="">— No project —</option>
+                    {projects.filter(p => p.active).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: order summary */}
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden', position: 'sticky', top: 80 }}>
+            <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, fontWeight: 700, fontSize: 14 }}>
+              Order Summary — {cartCount} item{cartCount !== 1 ? 's' : ''}
+            </div>
+            <div style={{ padding: 16, maxHeight: 300, overflowY: 'auto' }}>
+              {cart.map(it => {
+                const avail = getCartItemStock(it.sku);
+                const short = avail !== null && avail < it.quantity;
+                return (
+                  <div key={it.sku} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{it.product_name}</div>
+                      <div style={{ fontSize: 11, color: C.muted, fontFamily: 'monospace' }}>{it.sku}</div>
+                      {short && <div style={{ fontSize: 11, color: C.danger }}>⚠ Only {avail} in stock</div>}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button onClick={() => updateCartQty(it.sku, it.quantity - 1)} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>{it.quantity}</span>
+                      <button onClick={() => updateCartQty(it.sku, it.quantity + 1)} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {checkoutError && (
+              <div style={{ margin: '0 16px 12px', padding: '8px 12px', background: C.dangerBg, border: `1px solid #FECACA`, borderRadius: 8, fontSize: 12, color: C.danger }}>
+                {checkoutError}
+              </div>
+            )}
+            <div style={{ padding: 16, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={submitOrder} disabled={saving || cartHasStockIssue} style={{
+                width: '100%', padding: '12px', background: cartHasStockIssue ? C.muted : C.accent,
+                color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 15,
+                cursor: saving || cartHasStockIssue ? 'not-allowed' : 'pointer',
+              }}>
+                {saving ? 'Placing order...' : cartHasStockIssue ? 'Stock issue — check items' : '✓ Place Order'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Success screen ────────────────────────────────────────────
+  if (checkoutResult) {
+    return (
+      <div style={{ maxWidth: 560, margin: '40px auto', textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Order Placed!</h2>
+        <div style={{ fontSize: 14, color: C.muted, marginBottom: 24 }}>
+          Order <span style={{ fontFamily: 'monospace', fontWeight: 700, color: C.accent }}>{checkoutResult.order_number}</span> has been created.
+        </div>
+        <button onClick={() => setCheckoutResult(null)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+          Continue Shopping
+        </button>
+      </div>
+    );
+  }
+
+  // ── Catalogue view ────────────────────────────────────────────
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Product Catalogue</h2>
+        {/* Cart button */}
+        <button onClick={() => cartCount > 0 && setCheckingOut(true)} style={{
+          position: 'relative', background: cartCount > 0 ? C.accent : C.surface,
+          color: cartCount > 0 ? '#fff' : C.muted,
+          border: `1px solid ${cartCount > 0 ? C.accent : C.border}`,
+          borderRadius: 10, padding: '9px 20px', fontWeight: 700, fontSize: 14,
+          cursor: cartCount > 0 ? 'pointer' : 'default',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          🛒 Cart
+          {cartCount > 0 && (
+            <span style={{ background: '#fff', color: C.accent, borderRadius: 20, padding: '1px 8px', fontSize: 12, fontWeight: 800 }}>
+              {cartCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
+          placeholder="Search SKU or product name..."
+          style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 260 }} />
+        <select value={bgFilter} onChange={e => setBgFilter(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
+          <option value="all">All Billing Groups</option>
+          {billingGroups.map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: C.muted }}>{filteredProducts.length} products</span>
+      </div>
+
+      {/* Grid */}
+      {loading ? (
+        <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>⏳ Loading products...</div>
+      ) : filteredProducts.length === 0 ? (
+        <div style={{ padding: 60, textAlign: 'center', color: C.muted }}>No products found</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+          {filteredProducts.map(product => {
+            const sellable   = stock[product.sku] ?? null;
+            const inCart     = cart.find(it => it.sku === product.sku);
+            const outOfStock = sellable !== null && sellable === 0;
+
+            return (
+              <div key={product.sku} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12,
+                overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                opacity: outOfStock ? 0.6 : 1,
+              }}>
+                {/* Image placeholder */}
+                <div style={{ height: 160, background: C.surfaceAlt, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${C.border}` }}>
+                  {product.image_url ? (
+                    <img src={product.image_url} alt={product.product_name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 8 }} />
+                  ) : (
+                    <div style={{ textAlign: 'center', color: C.muted }}>
+                      <div style={{ fontSize: 32, marginBottom: 4 }}>📦</div>
+                      <div style={{ fontSize: 10 }}>No image</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div style={{ padding: '12px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', color: C.accent, fontWeight: 600 }}>{product.sku}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{product.product_name || skuNames[product.sku] || '—'}</div>
+                  {product.billing_group && (
+                    <div style={{ fontSize: 11, color: C.muted, background: C.surfaceAlt, padding: '2px 8px', borderRadius: 8, display: 'inline-block', marginTop: 2 }}>
+                      {product.billing_group}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 'auto', paddingTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: outOfStock ? C.danger : sellable > 0 ? C.success : C.muted }}>
+                      {sellable === null ? '—' : outOfStock ? 'Out of stock' : `${sellable} in stock`}
+                    </span>
+                    {inCart && (
+                      <span style={{ fontSize: 11, background: C.accentDim, color: C.accent, padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                        ×{inCart.quantity} in cart
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Add to cart button */}
+                <div style={{ padding: '0 14px 14px' }}>
+                  {outOfStock ? (
+                    <div style={{ textAlign: 'center', fontSize: 12, color: C.muted, padding: '8px 0' }}>Out of stock</div>
+                  ) : inCart ? (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => updateCartQty(product.sku, inCart.quantity - 1)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>−</button>
+                      <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>{inCart.quantity}</span>
+                      <button onClick={() => updateCartQty(product.sku, inCart.quantity + 1)} disabled={sellable !== null && inCart.quantity >= sellable}
+                        style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>+</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => addToCart(product)} style={{
+                      width: '100%', padding: '9px', background: C.accent, color: '#fff',
+                      border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                    }}>
+                      + Add to Cart
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Inventory View ─────────────────────────────────────────────
 function InventoryView({ token }) {
   const [items,      setItems]      = useState([]);
@@ -3393,6 +3856,7 @@ const ALL_PERMISSIONS = [
   // Inventory
   { key: 'inventory',           label: 'View Inventory',              group: 'Inventory' },
   // Settings (super admin only by default)
+  { key: 'catalogue',           label: 'Product Catalogue (Order)',   group: 'Catalogue' },
   { key: 'products_view',       label: 'View Products',               group: 'Settings' },
   { key: 'products_import',     label: 'Import Products (ECCANG/JDL)', group: 'Settings' },
   { key: 'products_add',        label: 'Add Product Manually',        group: 'Settings' },
@@ -3616,57 +4080,53 @@ function UserManagement({ token, user: currentUser }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 4 }}>Permissions:</div>
                 <PermGrid perms={editPerms} setPerms={setEditPerms} />
 
-                {/* Project access restriction */}
+                {/* Billing Group Access */}
                 <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, marginBottom: 4 }}>
                     BILLING GROUP ACCESS
-                    <span style={{ fontWeight: 400, marginLeft: 8, color: C.muted }}>
-                      {editAllowedBillingGroups.length === 0
-                        ? '(No restriction — can see all SKUs)'
-                        : `(Restricted to Billing Group: ${editAllowedBillingGroups.join(', ')})`}
-                    </span>
                   </div>
                   <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
-                    Select which Billing Groups this user can access. Leave empty for no restriction.
+                    {editAllowedBillingGroups.length === 0
+                      ? 'No billing groups selected — user cannot see any inventory or products.'
+                      : `${editAllowedBillingGroups.length} group${editAllowedBillingGroups.length > 1 ? 's' : ''} selected`}
                   </div>
-                  <div style={{ marginBottom: 6 }}>
-                    <input placeholder="Search billing groups..." onChange={e => {
-                        const q = e.target.value.toLowerCase();
-                        document.querySelectorAll('button[data-bgname]').forEach(btn => {
-                          btn.style.display = btn.dataset.bgname.toLowerCase().includes(q) ? '' : 'none';
-                        });
-                      }}
-                      style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, width: 280, background: C.bg, color: C.text, marginBottom: 8 }}
-                    />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 220, overflowY: 'auto', padding: '4px 0' }}>
-                      {billingGroups.map(bg => {
-                        const isAllowed = editAllowedBillingGroups.includes(bg.name);
-                        return (
-                          <button key={bg.id} data-bgname={bg.name}
-                            onClick={() => setEditAllowedBillingGroups(prev =>
-                              prev.includes(bg.name) ? prev.filter(b => b !== bg.name) : [...prev, bg.name]
-                            )}
-                            style={{
-                              padding: '4px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: isAllowed ? 700 : 400,
-                              border: `1px solid ${isAllowed ? C.accent : C.border}`,
-                              background: isAllowed ? C.accentDim : C.surface,
-                              color: isAllowed ? C.accent : C.muted,
-                              whiteSpace: 'nowrap',
-                            }}>
-                            {isAllowed ? '✓ ' : ''}{bg.name}
-                          </button>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <select
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (!val) return;
+                        setEditAllowedBillingGroups(prev =>
+                          prev.includes(val) ? prev : [...prev, val]
                         );
-                      })}
-                      {billingGroups.length === 0 && (
-                        <span style={{ fontSize: 12, color: C.muted }}>Loading billing groups...</span>
-                      )}
-                    </div>
+                        e.target.value = '';
+                      }}
+                      style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, flex: 1, maxWidth: 360 }}>
+                      <option value="">— Add a billing group —</option>
+                      {billingGroups
+                        .filter(bg => !editAllowedBillingGroups.includes(bg.name))
+                        .map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)
+                      }
+                    </select>
+                    {editAllowedBillingGroups.length > 0 && (
+                      <button onClick={() => setEditAllowedBillingGroups([])}
+                        style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', border: `1px solid #FECACA`, background: 'none', color: C.danger, whiteSpace: 'nowrap' }}>
+                        ✕ Clear all
+                      </button>
+                    )}
                   </div>
                   {editAllowedBillingGroups.length > 0 && (
-                    <button onClick={() => setEditAllowedBillingGroups([])}
-                      style={{ padding: '4px 12px', borderRadius: 20, fontSize: 11, cursor: 'pointer', border: `1px solid ${C.border}`, background: 'none', color: C.danger }}>
-                      ✕ Clear all ({editAllowedBillingGroups.length} selected)
-                    </button>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      {editAllowedBillingGroups.map(bg => (
+                        <span key={bg} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: C.accentDim, border: `1px solid #BFDBFE`, fontSize: 12, color: C.accent, fontWeight: 600 }}>
+                          {bg}
+                          <button
+                            onClick={() => setEditAllowedBillingGroups(prev => prev.filter(b => b !== bg))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.accent, fontSize: 14, lineHeight: 1, padding: 0 }}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
@@ -3719,9 +4179,10 @@ export default function AdminPage() {
       group: 'Orders',
       icon: '📝',
       items: [
-        { key: 'manual_orders', label: 'View Orders',   perm: 'manual_orders' },
-        { key: 'manual_create', label: 'Create Order',  perm: 'manual_create' },
-        { key: 'manual_bulk',   label: 'Bulk Upload',   perm: 'manual_bulk' },
+        { key: 'catalogue',     label: '🛒 Browse & Order', perm: 'manual_create' },
+        { key: 'manual_orders', label: 'View Orders',        perm: 'manual_orders' },
+        { key: 'manual_create', label: 'Create Order',       perm: 'manual_create' },
+        { key: 'manual_bulk',   label: 'Bulk Upload',        perm: 'manual_bulk' },
       ],
     },
     {
@@ -3733,6 +4194,13 @@ export default function AdminPage() {
         { key: 'order_type', label: 'Order Type',       perm: 'order_type' },
         { key: 'upload',     label: 'Sync ECCANG',      perm: 'sync_eccang' },
         { key: 'tracking',   label: 'Update Tracking',  perm: 'tracking' },
+      ],
+    },
+    {
+      group: 'Catalogue',
+      icon: '🛍️',
+      items: [
+        { key: 'catalogue', label: 'Product Catalogue', perm: 'catalogue' },
       ],
     },
     {
@@ -3821,6 +4289,7 @@ export default function AdminPage() {
           {section === 'manual_bulk'    && can('manual_bulk')     && <ManualOrderBulkUpload token={token} userPerms={user?.permissions} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
           {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
           {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
+          {section === 'catalogue'     && can('catalogue')       && <ProductCatalogue     token={token} user={user} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
           {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
           {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
