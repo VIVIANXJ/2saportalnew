@@ -3022,6 +3022,45 @@ function LocationManagement({ token }) {
         </button>
       </div>
 
+      {/* Bulk upload drop zone */}
+      {showBulk && (
+        <div style={{ background: C.surface, border: `2px dashed ${C.accent}`, borderRadius: 12, padding: 24, marginBottom: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🖼️</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 4 }}>Bulk Image Upload</div>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 16 }}>
+            Filename must match SKU exactly (e.g. <span style={{ fontFamily: 'monospace' }}>2SAASL100-A4.jpg</span>).<br/>
+            Underscores in filename are treated as hyphens. Supported: JPG, PNG, WebP, GIF. Max 5MB per file.
+          </div>
+          <label style={{ cursor: 'pointer' }}>
+            <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+              onChange={e => handleBulkUpload(e.target.files)} />
+            <span style={{ background: C.accent, color: '#fff', padding: '10px 24px', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+              Select Images
+            </span>
+          </label>
+          <button onClick={() => setShowBulk(false)} style={{ marginLeft: 12, background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Bulk upload progress */}
+      {bulkUploading && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+            ⏳ Uploading images... {bulkProgress.done} / {bulkProgress.total}
+          </div>
+          <div style={{ height: 6, background: C.surfaceAlt, borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
+            <div style={{ height: '100%', background: C.accent, width: `${bulkProgress.total > 0 ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%`, transition: 'width 0.3s' }} />
+          </div>
+          {bulkProgress.errors.length > 0 && (
+            <div style={{ fontSize: 11, color: C.danger }}>
+              {bulkProgress.errors.slice(-3).map((e, i) => <div key={i}>⚠ {e}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+
       {msg && (
         <div style={{ background: msg.startsWith('✅') ? C.successBg : C.dangerBg, border: `1px solid ${msg.startsWith('✅') ? '#A7F3D0' : '#FECACA'}`, borderRadius: 8, padding: '10px 14px', fontSize: 13, color: msg.startsWith('✅') ? C.success : C.danger, marginBottom: 16 }}>
           {msg}
@@ -3126,8 +3165,90 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
   const [totalPages, setTotalPages] = useState(1);
   const [showNew,   setShowNew]   = useState(false);
   const [newProd,   setNewProd]   = useState({ sku: '', product_name: '', description: '' });
-  const [saving,    setSaving]    = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [uploading,    setUploading]    = useState(null); // sku being uploaded
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkProgress,  setBulkProgress]  = useState({ done: 0, total: 0, errors: [] });
+  const [showBulk,     setShowBulk]     = useState(false);
   const PAGE_SIZE = 100;
+
+  // Single image upload
+  const uploadImage = async (product, file) => {
+    if (!file) return;
+    setUploading(product.sku);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('sku', product.sku);
+      fd.append('product_id', product.id);
+      const res  = await fetch('/api/products/upload-image', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setMsg(`✅ Image uploaded for ${product.sku}`);
+      // Update local state
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, image_url: json.url } : p));
+      // Invalidate product cache so catalogue picks up new images
+      productsCache = {};
+    } catch (e) { setMsg(`❌ ${e.message}`); }
+    finally { setUploading(null); }
+  };
+
+  // Bulk upload: user selects multiple files, matched by filename to SKU
+  const handleBulkUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    setBulkUploading(true);
+    setShowBulk(false);
+    const fileList = Array.from(files);
+    setBulkProgress({ done: 0, total: fileList.length, errors: [] });
+    const errors = [];
+
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      // Match filename (without extension) to SKU
+      const nameParts = file.name.split('.');
+      nameParts.pop(); // remove extension
+      const skuFromFilename = nameParts.join('.').replace(/_/g, '-');
+
+      // Find product by SKU (case-insensitive)
+      const product = products.find(p =>
+        p.sku.toLowerCase() === skuFromFilename.toLowerCase()
+      );
+
+      if (!product) {
+        errors.push(`${file.name} — no matching SKU found`);
+        setBulkProgress(prev => ({ ...prev, done: i + 1, errors: [...errors] }));
+        continue;
+      }
+
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('sku', product.sku);
+        fd.append('product_id', product.id);
+        const res  = await fetch('/api/products/upload-image', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+        setProducts(prev => prev.map(p => p.id === product.id ? { ...p, image_url: json.url } : p));
+      } catch (e) {
+        errors.push(`${file.name} — ${e.message}`);
+      }
+      setBulkProgress(prev => ({ ...prev, done: i + 1, errors: [...errors] }));
+    }
+
+    productsCache = {}; // invalidate cache
+    setBulkUploading(false);
+    setMsg(errors.length === 0
+      ? `✅ ${fileList.length} images uploaded successfully`
+      : `⚠️ ${fileList.length - errors.length} uploaded, ${errors.length} failed`);
+  };
 
   const load = async (p = 1) => {
     setLoading(true);
@@ -3193,6 +3314,10 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text }}>Product Management</h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { setShowBulk(v => !v); setMsg(''); }}
+            style={{ background: showBulk ? C.accent : C.surface, color: showBulk ? '#fff' : C.text, border: `1px solid ${showBulk ? C.accent : C.border}`, borderRadius: 8, padding: '8px 14px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            🖼️ Bulk Upload Images
+          </button>
           {canDo('products_import') && <button onClick={async () => {
             setMsg('Fetching from ECCANG...');
             try {
@@ -3296,7 +3421,7 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: C.surfaceAlt }}>
-                {['SKU', 'Product Name', 'Billing Group', 'Description', 'Location'].map(h => (
+                {['', 'SKU', 'Product Name', 'Billing Group', 'Image', ''].map(h => (
                   <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
@@ -3304,10 +3429,31 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
             <tbody>
               {products.map(p => (
                 <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                  {/* Thumbnail */}
+                  <td style={{ padding: '6px 10px', width: 52 }}>
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.sku} style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 6, border: `1px solid ${C.border}` }} />
+                    ) : (
+                      <div style={{ width: 44, height: 44, background: C.surfaceAlt, borderRadius: 6, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: C.muted }}>📦</div>
+                    )}
+                  </td>
                   <td style={{ padding: '9px 14px', fontFamily: 'monospace', color: C.accent, fontWeight: 600, fontSize: 12 }}>{p.sku}</td>
                   <td style={{ padding: '9px 14px', color: C.text }}>{p.product_name}</td>
                   <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.billing_group || '—'}</td>
-                  <td style={{ padding: '9px 14px', color: C.muted, fontSize: 12 }}>{p.description || '—'}</td>
+                  {/* Upload button */}
+                  <td style={{ padding: '9px 14px' }}>
+                    <label style={{ cursor: 'pointer' }}>
+                      <input type="file" accept="image/*" style={{ display: 'none' }}
+                        onChange={e => uploadImage(p, e.target.files[0])} />
+                      <span style={{
+                        fontSize: 11, padding: '4px 10px', borderRadius: 6, fontWeight: 600, cursor: 'pointer',
+                        border: `1px solid ${C.border}`, background: C.surface, color: C.muted,
+                        opacity: uploading === p.sku ? 0.5 : 1,
+                      }}>
+                        {uploading === p.sku ? '⏳' : p.image_url ? '🔄 Replace' : '⬆️ Upload'}
+                      </span>
+                    </label>
+                  </td>
                   <td style={{ padding: '9px 14px' }}>{sourceTag(p.source)}</td>
                 </tr>
               ))}
