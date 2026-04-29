@@ -36,6 +36,43 @@ async function deductStock(supabase, items) {
   }
 }
 
+// Send email notification via Resend directly (fire-and-forget)
+async function sendOrderEmail(type, order, recipients) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey || !recipients?.length) return;
+  try {
+    const { buildEmailHtml } = await import('./email/templates.js').catch(() => ({ buildEmailHtml: null }));
+    // Dynamically build subject and html based on type
+    const portalUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://2saportalnew.vercel.app';
+    const addr = order.ship_to_address || {};
+    const items = order.order_items || [];
+    const itemRows = items.map(it => `<tr><td>${it.product_name || it.sku}</td><td style="font-family:monospace;color:#1a6cf6">${it.sku}</td><td style="text-align:right;font-weight:600">${it.quantity}</td></tr>`).join('');
+
+    let subject, html;
+    if (type === 'order_confirmation') {
+      subject = `Order Confirmation — ${order.order_number}`;
+      html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.w{max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}.h{background:#F4010A;padding:20px 32px;color:#fff;font-size:17px;font-weight:600}.b{padding:28px 32px}.g{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f8f8f8;border-radius:8px;padding:16px;margin:20px 0}.l{font-size:12px;color:#999;margin-bottom:4px}.v{font-size:14px;color:#111;font-weight:600}table{width:100%;border-collapse:collapse;font-size:13px}th{padding:8px 10px;text-align:left;color:#999;font-weight:600;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee}td{padding:9px 10px;border-bottom:1px solid #f0f0f0;color:#333}.a{border-left:3px solid #eee;padding:6px 0 6px 14px;line-height:1.8;font-size:13px;color:#555;margin:8px 0 20px}.cta{display:inline-block;background:#F4010A;color:#fff;text-decoration:none;padding:11px 24px;border-radius:8px;font-weight:700;font-size:14px;margin:4px 0 24px}.f{border-top:1px solid #eee;padding:18px 32px;font-size:11px;color:#aaa;line-height:1.7}</style></head><body><div class="w"><div class="h">CCEP 3PL Portal</div><div class="b"><p style="font-size:12px;color:#999;margin:0 0 4px">Order confirmation</p><p style="font-size:20px;font-weight:700;color:#111;margin:0 0 16px">Your order has been placed</p><p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 20px">Hi ${order.ship_to_name || 'there'}, your order has been received and is now being processed. You'll receive another email once it ships.</p><div class="g"><div><div class="l">Order number</div><div class="v" style="font-family:monospace;font-size:13px">${order.order_number}</div></div><div><div class="l">Reference</div><div class="v">${order.reference_no || '—'}</div></div><div><div class="l">Date placed</div><div class="v">${new Date().toLocaleDateString('en-AU', {day:'2-digit',month:'short',year:'numeric'})}</div></div><div><div class="l">Status</div><div class="v">${order.status || 'Pending'}</div></div></div><p style="font-size:13px;font-weight:700;margin:20px 0 10px">Items ordered</p><table><thead><tr><th>Product</th><th>SKU</th><th style="text-align:right">Qty</th></tr></thead><tbody>${itemRows}</tbody></table><p style="font-size:13px;font-weight:700;margin:20px 0 8px">Delivery address</p><div class="a">${order.ship_to_name}<br>${order.customer_company ? order.customer_company + '<br>' : ''}${addr.address1 || ''}${addr.address2 ? ', ' + addr.address2 : ''}<br>${addr.suburb || ''} ${addr.state || ''} ${addr.postcode || ''}<br>${addr.country || 'Australia'}</div><a href="${portalUrl}/admin" class="cta">View order details</a></div><div class="f">This email was sent by CCEP 3PL Portal. © ${new Date().getFullYear()} Coca-Cola Europacific Partners</div></div></body></html>`;
+    } else if (type === 'shipping_notification') {
+      subject = `Your order is on its way — ${order.order_number}`;
+      html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.w{max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}.h{background:#F4010A;padding:20px 32px;color:#fff;font-size:17px;font-weight:600}.b{padding:28px 32px}.g{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f8f8f8;border-radius:8px;padding:16px;margin:20px 0}.l{font-size:12px;color:#999;margin-bottom:4px}.v{font-size:14px;color:#111;font-weight:600}table{width:100%;border-collapse:collapse;font-size:13px}th{padding:8px 10px;text-align:left;color:#999;font-weight:600;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee}td{padding:9px 10px;border-bottom:1px solid #f0f0f0;color:#333}.a{border-left:3px solid #eee;padding:6px 0 6px 14px;line-height:1.8;font-size:13px;color:#555;margin:8px 0 20px}.tb{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:8px;padding:14px 16px;margin:16px 0}.cta{display:inline-block;background:#F4010A;color:#fff;text-decoration:none;padding:11px 24px;border-radius:8px;font-weight:700;font-size:14px;margin:4px 0 24px}.f{border-top:1px solid #eee;padding:18px 32px;font-size:11px;color:#aaa;line-height:1.7}</style></head><body><div class="w"><div class="h">CCEP 3PL Portal</div><div class="b"><p style="font-size:12px;color:#999;margin:0 0 4px">Shipping notification</p><p style="font-size:20px;font-weight:700;color:#111;margin:0 0 16px">Your order is on its way</p><p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 20px">Hi ${order.ship_to_name || 'there'}, your order has been dispatched and is now on its way to you.</p><div class="g"><div><div class="l">Order number</div><div class="v" style="font-family:monospace;font-size:13px">${order.order_number}</div></div><div><div class="l">Reference</div><div class="v">${order.reference_no || '—'}</div></div><div><div class="l">Shipped date</div><div class="v">${new Date().toLocaleDateString('en-AU', {day:'2-digit',month:'short',year:'numeric'})}</div></div><div><div class="l">Status</div><div class="v">Shipped</div></div></div>${order.tracking_number ? `<div class="tb"><p style="font-size:13px;font-weight:700;margin:0 0 10px">Tracking details</p><div style="display:flex;gap:32px"><div><div class="l">Carrier</div><div class="v">${order.carrier || '—'}</div></div><div><div class="l">Tracking number</div><div class="v" style="font-family:monospace">${order.tracking_number}</div></div></div></div>` : ''}<p style="font-size:13px;font-weight:700;margin:20px 0 10px">Items shipped</p><table><thead><tr><th>Product</th><th>SKU</th><th style="text-align:right">Qty</th></tr></thead><tbody>${itemRows}</tbody></table><p style="font-size:13px;font-weight:700;margin:20px 0 8px">Delivery address</p><div class="a">${order.ship_to_name}<br>${order.customer_company ? order.customer_company + '<br>' : ''}${addr.address1 || ''}${addr.address2 ? ', ' + addr.address2 : ''}<br>${addr.suburb || ''} ${addr.state || ''} ${addr.postcode || ''}<br>${addr.country || 'Australia'}</div><a href="${portalUrl}/admin" class="cta">View order details</a></div><div class="f">This email was sent by CCEP 3PL Portal. © ${new Date().getFullYear()} Coca-Cola Europacific Partners</div></div></body></html>`;
+    } else if (type === 'order_notification') {
+      // Internal notification to operations team
+      const placedBy = order.created_by_username || 'Unknown';
+      subject = `New Order — ${order.order_number} (placed by ${placedBy})`;
+      html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.w{max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}.h{background:#F4010A;padding:20px 32px;color:#fff;font-size:17px;font-weight:600}.b{padding:28px 32px}.g{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f8f8f8;border-radius:8px;padding:16px;margin:20px 0}.l{font-size:12px;color:#999;margin-bottom:4px}.v{font-size:14px;color:#111;font-weight:600}table{width:100%;border-collapse:collapse;font-size:13px}th{padding:8px 10px;text-align:left;color:#999;font-weight:600;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee}td{padding:9px 10px;border-bottom:1px solid #f0f0f0;color:#333}.a{border-left:3px solid #eee;padding:6px 0 6px 14px;line-height:1.8;font-size:13px;color:#555;margin:8px 0 16px}.f{border-top:1px solid #eee;padding:18px 32px;font-size:11px;color:#aaa;line-height:1.7}</style></head><body><div class="w"><div class="h">CCEP 3PL Portal — New Order Alert</div><div class="b"><p style="font-size:14px;color:#555;margin:0 0 20px">A new order has been placed on the portal.</p><div class="g"><div><div class="l">Order number</div><div class="v" style="font-family:monospace;font-size:13px">${order.order_number}</div></div><div><div class="l">Placed by</div><div class="v">${placedBy}</div></div><div><div class="l">Reference</div><div class="v">${order.reference_no || '—'}</div></div><div><div class="l">Recipient</div><div class="v">${order.ship_to_name || '—'}</div></div></div><p style="font-size:13px;font-weight:700;margin:20px 0 10px">Items</p><table><thead><tr><th>Product</th><th>SKU</th><th style="text-align:right">Qty</th></tr></thead><tbody>${items.map(it => `<tr><td>${it.product_name||it.sku}</td><td style="font-family:monospace;color:#1a6cf6">${it.sku}</td><td style="text-align:right;font-weight:600">${it.quantity}</td></tr>`).join('')}</tbody></table><p style="font-size:13px;font-weight:700;margin:20px 0 8px">Delivery address</p><div class="a">${order.ship_to_name}<br>${order.customer_company?order.customer_company+'<br>':''}${addr.address1||''}${addr.address2?', '+addr.address2:''}<br>${addr.suburb||''} ${addr.state||''} ${addr.postcode||''}<br>${addr.country||'Australia'}</div></div><div class="f">CCEP 3PL Portal © ${new Date().getFullYear()} Coca-Cola Europacific Partners</div></div></body></html>`;
+    } else return;
+
+    const from = process.env.RESEND_FROM || 'CCEP 3PL Portal <onboarding@resend.dev>';
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: recipients, subject, html }),
+    });
+  } catch (e) {
+    console.error('[sendOrderEmail]', e.message);
+  }
+}
+
 function generateManualOrderNumber() {
   const now = new Date();
   const y = now.getUTCFullYear();
@@ -327,6 +364,22 @@ export default async function handler(req, res) {
       shipstation = await pushToShipStation(orderPayload);
     }
 
+    // Send order confirmation emails (fire-and-forget)
+    // 1. To the logged-in user's own email (from JWT token)
+    // 2. To the fixed notify email (NOTIFY_EMAIL env var, defaults to link@2sa.com.au)
+    const notifyEmail   = process.env.NOTIFY_EMAIL || 'link@2sa.com.au';
+    const userEmail     = postUser.email || null;
+    const fullOrderData = {
+      ...order,
+      order_items: lineItems.map(it => ({ sku: it.sku, product_name: it.product_name, quantity: it.quantity })),
+      ship_to_address:  orderPayload.ship_to_address,
+      customer_company,
+    };
+    // Send to user's own email (if they have one set)
+    if (userEmail) sendOrderEmail('order_confirmation', fullOrderData, [userEmail]);
+    // Always notify the operations team
+    sendOrderEmail('order_notification', fullOrderData, [notifyEmail]);
+
     return res.status(201).json({
       success: true,
       data: order,
@@ -414,6 +467,14 @@ export default async function handler(req, res) {
         items: order.order_items || [],
       };
       shipstation = await pushToShipStation(orderPayload);
+    }
+
+    // Send shipping notification if tracking was added and status is shipped
+    if (tracking_number && finalOrder?.status === 'shipped' && finalOrder?.customer_email) {
+      sendOrderEmail('shipping_notification', {
+        ...finalOrder,
+        ship_to_address: finalOrder.ship_to_address,
+      }, [finalOrder.customer_email]);
     }
 
     return res.status(200).json({ success: true, data: finalOrder, shipstation });
