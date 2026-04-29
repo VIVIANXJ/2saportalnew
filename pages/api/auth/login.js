@@ -26,14 +26,15 @@ function getSupabase() {
   );
 }
 
-export function makeToken(username, role, permissions, allowed_billing_groups) {
+export function makeToken(username, role, permissions, allowed_billing_groups, email) {
   const payload = Buffer.from(JSON.stringify({
-    sub:                   username,
+    sub:                    username,
     role,
-    permissions:           permissions           || [],
+    permissions:            permissions            || [],
     allowed_billing_groups: allowed_billing_groups || [], // [] = no restriction (super admin)
-    iat:              Date.now(),
-    exp:              Date.now() + 86400000, // 24h
+    email:                  email                  || null,
+    iat:                    Date.now(),
+    exp:                    Date.now() + 86400000, // 24h
   })).toString('base64');
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
   return `${payload}.${sig}`;
@@ -93,10 +94,11 @@ export default async function handler(req, res) {
 
     const permissions             = user.permissions             || [];
     const allowed_billing_groups  = user.allowed_billing_groups  || [];
-    const token = makeToken(username, 'admin', permissions, allowed_billing_groups);
+    const userEmail                = user.email                    || null;
+    const token = makeToken(username, 'admin', permissions, allowed_billing_groups, userEmail);
     return res.status(200).json({
       success: true, token,
-      user: { username, role: 'admin', permissions, allowed_billing_groups },
+      user: { username, role: 'admin', permissions, allowed_billing_groups, email: userEmail },
     });
   } catch (e) {
     return res.status(500).json({ error: e.message });
