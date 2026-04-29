@@ -4070,7 +4070,8 @@ function UserManagement({ token, user: currentUser }) {
   const [editActive, setEditActive] = useState(true);
   const [editNotes, setEditNotes] = useState('');
   const [editAllowedBillingGroups, setEditAllowedBillingGroups] = useState([]); // [] = no restriction
-  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '', allowed_billing_groups: [] });
+  const [editEmail, setEditEmail] = useState('');
+  const [newUser,  setNewUser]  = useState({ username: '', password: '', permissions: [], notes: '', allowed_billing_groups: [], email: '' });
   const [showNew,  setShowNew]  = useState(false);
   const [saving,   setSaving]   = useState(false);
 
@@ -4096,6 +4097,7 @@ function UserManagement({ token, user: currentUser }) {
     setEditActive(u.active !== false);
     setEditNotes(u.notes || '');
     setEditAllowedBillingGroups(u.allowed_billing_groups || []);
+    setEditEmail(u.email || '');
     setMsg('');
   };
 
@@ -4105,7 +4107,7 @@ function UserManagement({ token, user: currentUser }) {
       const res  = await fetch(`/api/auth/users?id=${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes, allowed_billing_groups: editAllowedBillingGroups }),
+        body: JSON.stringify({ permissions: editPerms, active: editActive, notes: editNotes, allowed_billing_groups: editAllowedBillingGroups, email: editEmail }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
@@ -4272,6 +4274,11 @@ function UserManagement({ token, user: currentUser }) {
                   </label>
                   <input value={editNotes} onChange={e => setEditNotes(e.target.value)}
                     placeholder="Notes" style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.muted, minWidth: 80 }}>Email:</span>
+                  <input value={editEmail} onChange={e => setEditEmail(e.target.value)}
+                    placeholder="user@example.com (for order notifications)" style={{ flex: 1, padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: C.muted, marginBottom: 4 }}>Permissions:</div>
                 <PermGrid perms={editPerms} setPerms={setEditPerms} />
