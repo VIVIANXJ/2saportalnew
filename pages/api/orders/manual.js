@@ -41,7 +41,6 @@ async function sendOrderEmail(type, order, recipients) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey || !recipients?.length) return;
   try {
-    const { buildEmailHtml } = await import('./email/templates.js').catch(() => ({ buildEmailHtml: null }));
     // Dynamically build subject and html based on type
     const portalUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://2saportalnew.vercel.app';
     const addr = order.ship_to_address || {};
