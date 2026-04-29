@@ -38,7 +38,7 @@ async function deductStock(supabase, items) {
 
 // Send email notification via Resend directly (fire-and-forget)
 async function sendOrderEmail(type, order, recipients) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.SENDGRID_API_KEY;
   if (!apiKey || !recipients?.length) return;
   try {
     // Dynamically build subject and html based on type
@@ -61,11 +61,17 @@ async function sendOrderEmail(type, order, recipients) {
       html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.w{max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08)}.h{background:#F4010A;padding:20px 32px;color:#fff;font-size:17px;font-weight:600}.b{padding:28px 32px}.g{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f8f8f8;border-radius:8px;padding:16px;margin:20px 0}.l{font-size:12px;color:#999;margin-bottom:4px}.v{font-size:14px;color:#111;font-weight:600}table{width:100%;border-collapse:collapse;font-size:13px}th{padding:8px 10px;text-align:left;color:#999;font-weight:600;font-size:11px;text-transform:uppercase;border-bottom:1px solid #eee}td{padding:9px 10px;border-bottom:1px solid #f0f0f0;color:#333}.a{border-left:3px solid #eee;padding:6px 0 6px 14px;line-height:1.8;font-size:13px;color:#555;margin:8px 0 16px}.f{border-top:1px solid #eee;padding:18px 32px;font-size:11px;color:#aaa;line-height:1.7}</style></head><body><div class="w"><div class="h">CCEP 3PL Portal — New Order Alert</div><div class="b"><p style="font-size:14px;color:#555;margin:0 0 20px">A new order has been placed on the portal.</p><div class="g"><div><div class="l">Order number</div><div class="v" style="font-family:monospace;font-size:13px">${order.order_number}</div></div><div><div class="l">Placed by</div><div class="v">${placedBy}</div></div><div><div class="l">Reference</div><div class="v">${order.reference_no || '—'}</div></div><div><div class="l">Recipient</div><div class="v">${order.ship_to_name || '—'}</div></div></div><p style="font-size:13px;font-weight:700;margin:20px 0 10px">Items</p><table><thead><tr><th>Product</th><th>SKU</th><th style="text-align:right">Qty</th></tr></thead><tbody>${items.map(it => `<tr><td>${it.product_name||it.sku}</td><td style="font-family:monospace;color:#1a6cf6">${it.sku}</td><td style="text-align:right;font-weight:600">${it.quantity}</td></tr>`).join('')}</tbody></table><p style="font-size:13px;font-weight:700;margin:20px 0 8px">Delivery address</p><div class="a">${order.ship_to_name}<br>${order.customer_company?order.customer_company+'<br>':''}${addr.address1||''}${addr.address2?', '+addr.address2:''}<br>${addr.suburb||''} ${addr.state||''} ${addr.postcode||''}<br>${addr.country||'Australia'}</div></div><div class="f">CCEP 3PL Portal © ${new Date().getFullYear()} Coca-Cola Europacific Partners</div></div></body></html>`;
     } else return;
 
-    const from = process.env.RESEND_FROM || 'CCEP 3PL Portal <onboarding@resend.dev>';
-    await fetch('https://api.resend.com/emails', {
+    const fromEmail = process.env.SENDGRID_FROM || 'vivian@2sa.com.au';
+    const fromName  = process.env.SENDGRID_FROM_NAME || 'CCEP 3PL Portal';
+    await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: recipients, subject, html }),
+      body: JSON.stringify({
+        personalizations: [{ to: recipients.map(r => ({ email: r })) }],
+        from: { email: fromEmail, name: fromName },
+        subject,
+        content: [{ type: 'text/html', value: html }],
+      }),
     });
   } catch (e) {
     console.error('[sendOrderEmail]', e.message);
