@@ -1765,7 +1765,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
   const [modalOrder, setModalOrder] = useState(null); // full order object
   const [modalData,  setModalData]  = useState({});   // editable fields
   const [trackModal, setTrackModal] = useState(null); // order for tracking update
-  const [trackData,  setTrackData]  = useState({ carrier: '', tracking_number: '', tracking_link: '' });
+  const [trackData,  setTrackData]  = useState({ carrier: '', tracking_number: '', tracking_link: '', project_tracking_note: '' });
   const [trackSaving, setTrackSaving] = useState(false);
   const [trackMsg,    setTrackMsg]    = useState('');
   const [projects,   setProjects]   = useState([]);
@@ -1853,9 +1853,10 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
   const openTrackModal = (order) => {
     setTrackModal(order);
     setTrackData({
-      carrier:         order.carrier         || '',
-      tracking_number: order.tracking_number || '',
-      tracking_link:   order.tracking_link   || '',
+      carrier:               order.carrier               || '',
+      tracking_number:       order.tracking_number       || '',
+      tracking_link:         order.tracking_link         || '',
+      project_tracking_note: order.project_tracking_note || '',
     });
     setTrackMsg('');
   };
@@ -1868,10 +1869,11 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          carrier:         trackData.carrier,
-          tracking_number: trackData.tracking_number,
-          tracking_link:   trackData.tracking_link || null,
-          status:          trackData.tracking_number ? 'shipped' : trackModal.status,
+          carrier:               trackData.carrier,
+          tracking_number:       trackData.tracking_number,
+          tracking_link:         trackData.tracking_link         || null,
+          project_tracking_note: trackData.project_tracking_note || null,
+          status:                trackData.tracking_number ? 'shipped' : trackModal.status,
         }),
       });
       const json = await res.json();
@@ -2181,6 +2183,13 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
                 <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Tracking Link <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></span>
                 <input value={trackData.tracking_link} onChange={e => setTrackData(p => ({ ...p, tracking_link: e.target.value }))}
                   placeholder="https://..." style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Project Tracking Note <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></span>
+                <span style={{ fontSize: 11, color: C.muted }}>e.g. a project-wide tracking link or reference that covers all orders in this project</span>
+                <textarea value={trackData.project_tracking_note} onChange={e => setTrackData(p => ({ ...p, project_tracking_note: e.target.value }))}
+                  rows={3} placeholder="e.g. All orders in this project can be tracked at https://... or via reference PO-2026-XXX"
+                  style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text, resize: 'vertical' }} />
               </label>
               {trackData.tracking_number && (
                 <div style={{ fontSize: 12, color: C.muted, background: C.surfaceAlt, padding: '8px 12px', borderRadius: 8 }}>
