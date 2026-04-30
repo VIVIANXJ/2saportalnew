@@ -611,8 +611,15 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ limit: '2000' });
-      if (!isSuperAdmin && allowedBillingGroups.length > 0) {
+      if (isSuperAdmin) {
+        // super_admin: no filter, see all
+      } else if (allowedBillingGroups.length > 0) {
         params.set('billing_groups', allowedBillingGroups.join(','));
+      } else {
+        // No billing groups assigned — show nothing
+        setProducts([]);
+        setLoading(false);
+        return;
       }
       const [prodRes, stockRes, bgRes, projRes, namesRes] = await Promise.all([
         fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -4542,7 +4549,7 @@ export default function AdminPage() {
       group: 'Orders',
       icon: '📝',
       items: [
-        { key: 'catalogue',     label: '🛒 Browse & Order', perm: 'manual_create' },
+        { key: 'catalogue',     label: '🛒 Browse & Order', perm: 'catalogue' },
         { key: 'manual_orders', label: 'View Orders',        perm: 'manual_orders' },
         { key: 'manual_create', label: 'Create Order',       perm: 'manual_create' },
         { key: 'manual_bulk',   label: 'Bulk Upload',        perm: 'manual_bulk' },
