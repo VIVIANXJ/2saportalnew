@@ -579,10 +579,14 @@ function OrderTypeUpdate({ token }) {
 // ── Product Catalogue ──────────────────────────────────────────
 function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
   const [products,    setProducts]    = useState([]);
-  const [stock,       setStock]       = useState({}); // sku → sellable qty
+  const [stock,            setStock]            = useState({}); // sku → sellable qty
+  const [warehouseStockMap, setWarehouseStockMap] = useState({}); // sku → { wh: sellable }
   const [loading,     setLoading]     = useState(true);
-  const [searchQ,     setSearchQ]     = useState('');
-  const [bgFilter,    setBgFilter]    = useState('all');
+  const [searchQ,          setSearchQ]          = useState('');
+  const [bgFilter,         setBgFilter]         = useState('all');
+  const [warehouseFilter,  setWarehouseFilter]  = useState('all');
+  const [hideOutOfStock,   setHideOutOfStock]   = useState(false);
+  const [hideNoBilling,    setHideNoBilling]    = useState(false);
   const [cart,        setCart]        = useState([]); // [{sku, product_name, billing_group, quantity, image_url}]
   const [showCart,    setShowCart]    = useState(false);
   const [skuNames,    setSkuNames]    = useState({});
@@ -645,6 +649,16 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
         stockMap[item.sku] = total;
       });
       setStock(stockMap);
+
+      // Build per-warehouse stock map: { sku: { warehouseCode: sellable } }
+      const whStockMap = {};
+      (sj.data || []).forEach(item => {
+        whStockMap[item.sku] = {};
+        Object.entries(item.warehouses || {}).forEach(([wh, data]) => {
+          whStockMap[item.sku][wh] = data.sellable || 0;
+        });
+      });
+      setWarehouseStockMap(whStockMap);;
     } catch (e) {
       console.error('Catalogue load error:', e);
     } finally {
@@ -680,12 +694,24 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
 
   // Filtered products
   const filteredProducts = products.filter(p => {
+    // Hide no-billing-group
+    if (hideNoBilling && (!p.billing_group || p.billing_group === 'no-billing-group')) return false;
+    // Billing group filter
     if (bgFilter !== 'all' && p.billing_group !== bgFilter) return false;
+    // Warehouse filter: check if SKU has stock in selected warehouse
+    if (warehouseFilter !== 'all') {
+      const whStock = warehouseStockMap[p.sku];
+      if (!whStock || !whStock[warehouseFilter] || whStock[warehouseFilter] <= 0) return false;
+    }
+    // Hide out of stock
+    if (hideOutOfStock && !(stock[p.sku] > 0)) return false;
+    // Search: SKU, product name, billing group
     if (!searchQ.trim()) return true;
     const q = searchQ.toLowerCase();
     return (p.sku || '').toLowerCase().includes(q) ||
       (p.product_name || '').toLowerCase().includes(q) ||
-      (skuNames[p.sku] || '').toLowerCase().includes(q);
+      (skuNames[p.sku] || '').toLowerCase().includes(q) ||
+      (p.billing_group || '').toLowerCase().includes(q);
   });
 
   // Checkout submit
@@ -967,16 +993,31 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
-          placeholder="Search SKU or product name..."
-          style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 260 }} />
+          placeholder="Search SKU, name or billing group..."
+          style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.text, width: 280 }} />
         <select value={bgFilter} onChange={e => setBgFilter(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.bg, color: C.muted }}>
+          style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${bgFilter !== 'all' ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: bgFilter !== 'all' ? C.accent : C.muted }}>
           <option value="all">All Billing Groups</option>
           {billingGroups.map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: C.muted }}>{filteredProducts.length} products</span>
+        <select value={warehouseFilter} onChange={e => setWarehouseFilter(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${warehouseFilter !== 'all' ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: warehouseFilter !== 'all' ? C.accent : C.muted }}>
+          <option value="all">All Warehouses</option>
+          <option value="ECCANG">2SA Warehouse</option>
+          <option value="C0000001174">JD-SYD1</option>
+          <option value="C0000001901">JD-MEL1</option>
+        </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={hideOutOfStock} onChange={e => setHideOutOfStock(e.target.checked)} />
+          In stock only
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <input type="checkbox" checked={hideNoBilling} onChange={e => setHideNoBilling(e.target.checked)} />
+          Hide no-billing-group
+        </label>
+        <span style={{ fontSize: 12, color: C.muted, marginLeft: 'auto' }}>{filteredProducts.length} products</span>
       </div>
 
       {/* Grid */}
