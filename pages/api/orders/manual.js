@@ -63,7 +63,8 @@ async function sendOrderEmail(type, order, recipients) {
 
     const fromEmail = process.env.SENDGRID_FROM || 'vivian@2sa.com.au';
     const fromName  = process.env.SENDGRID_FROM_NAME || 'CCEP 3PL Portal';
-    await fetch('https://api.sendgrid.com/v3/mail/send', {
+    console.log('[sendOrderEmail] sending', type, 'to', recipients, 'from', fromEmail);
+    const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -73,8 +74,10 @@ async function sendOrderEmail(type, order, recipients) {
         content: [{ type: 'text/html', value: html }],
       }),
     });
+    const sgBody = await sgRes.text();
+    console.log('[sendOrderEmail] status', sgRes.status, sgBody || '(no body = success)');
   } catch (e) {
-    console.error('[sendOrderEmail]', e.message);
+    console.error('[sendOrderEmail] error:', e.message);
   }
 }
 
