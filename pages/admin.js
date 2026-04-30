@@ -594,6 +594,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
     reference_no: '', ship_to_name: '', customer_company: '', country: 'AU',
     address1: '', address2: '', suburb: '', state: '', postcode: '',
     phone: '', email: '', notes: '', project_id: '',
+    notify_recipient: false, // whether to also send confirmation to recipient email
   });
   const [checkoutError,  setCheckoutError]  = useState('');
   const [checkoutResult, setCheckoutResult] = useState(null);
@@ -706,6 +707,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
         customer_company: checkoutForm.customer_company,
         customer_phone:  checkoutForm.phone,
         customer_email:  checkoutForm.email,
+        notify_recipient: checkoutForm.notify_recipient,
         ship_to_address: {
           address1: checkoutForm.address1,
           address2: checkoutForm.address2,
@@ -793,6 +795,12 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Email</span>
                   <input value={checkoutForm.email} onChange={e => setField('email', e.target.value)} style={inp} />
+                  {checkoutForm.email && checkoutForm.email.includes('@') && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer', fontSize: 12, color: C.muted }}>
+                      <input type="checkbox" checked={checkoutForm.notify_recipient} onChange={e => setField('notify_recipient', e.target.checked)} />
+                      Also send order confirmation to this email
+                    </label>
+                  )}
                 </label>
               </div>
             </div>
