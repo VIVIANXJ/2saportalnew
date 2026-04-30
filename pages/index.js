@@ -1,3 +1,7 @@
+export async function getServerSideProps() {
+  return { redirect: { destination: '/admin', permanent: false } };
+}
+
 import { useState, useCallback, useRef } from 'react';
 import Head from 'next/head';
 
