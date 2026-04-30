@@ -492,8 +492,7 @@ export default async function handler(req, res) {
 
     // Send shipping notification if tracking was added and status is shipped
     if (tracking_number && finalOrder?.status === 'shipped') {
-      // Get the order creator's email from admin_users
-      const supabase = getSupabase();
+      // Get the order creator's email from admin_users (reuse existing supabase instance)
       const createdBy = finalOrder.created_by_username;
       let placerEmail = null;
       if (createdBy) {
