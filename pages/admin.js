@@ -1685,6 +1685,15 @@ function OrderSearch({ token }) {
 
 
 
+// Common carriers for dropdown
+const CARRIER_OPTIONS = [
+  'AusPost', 'AP Std', 'AP Exp', 'AP Int',
+  'DHL', 'FedEx', 'TNT', 'Toll', 'Sendle',
+  'Direct Freight', 'StarTrack', 'Border Express',
+  'Couriers Please', 'Allied Express', 'Hunter Express',
+  'NZ Post', 'Other',
+];
+
 // ── Carrier tracking URL map ───────────────────────────────────
 const CARRIER_TRACKING_URLS = {
   // AusPost variants
@@ -1812,6 +1821,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
       status:           order.status           || 'pending',
       tracking_number:  order.tracking_number  || '',
       carrier:          order.carrier          || '',
+      tracking_link:    order.tracking_link    || '',
       notes:            order.notes            || '',
       project_id:       order.project_id       || '',
       billing_group:    order.billing_group    || '',
@@ -1861,6 +1871,7 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
         billing_group:   modalData.billing_group || null,
         tracking_number: modalData.tracking_number,
         carrier:         modalData.carrier,
+        tracking_link:   modalData.tracking_link || null,
         notes:           modalData.notes,
         ship_to_name:    modalData.ship_to_name,
         customer_company: modalData.customer_company,
@@ -2135,18 +2146,48 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Billing Group</span>
                     <input value={modalData.billing_group || ''} onChange={e => setField('billing_group', e.target.value)} placeholder="e.g. CCEP-AU, ASL-2026..." style={inp} />
                   </label>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Carrier</span>
-                    <input value={modalData.carrier} onChange={e => setField('carrier', e.target.value)} style={inp} placeholder="e.g. AusPost, FedEx" />
-                  </label>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Tracking Number</span>
-                    <input value={modalData.tracking_number} onChange={e => setField('tracking_number', e.target.value)} style={inp} />
-                  </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}>
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Notes</span>
                     <textarea value={modalData.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
                   </label>
+                </div>
+              </div>
+
+              {/* ── Section: Tracking ── */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Tracking</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Carrier</span>
+                    <select value={modalData.carrier} onChange={e => setField('carrier', e.target.value)} style={inp}>
+                      <option value="">— Select carrier —</option>
+                      {CARRIER_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Custom Carrier (if not listed)</span>
+                    <input value={!CARRIER_OPTIONS.includes(modalData.carrier) ? modalData.carrier : ''} 
+                      onChange={e => setField('carrier', e.target.value)} 
+                      placeholder="Type carrier name..." style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Tracking Number</span>
+                    <input value={modalData.tracking_number} onChange={e => setField('tracking_number', e.target.value)} style={inp} placeholder="e.g. 7X1845783981Z" />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Tracking Link (optional)</span>
+                    <input value={modalData.tracking_link || ''} onChange={e => setField('tracking_link', e.target.value)} style={inp} placeholder="https://..." />
+                  </label>
+                  {(modalData.tracking_number || modalData.tracking_link) && (() => {
+                    const autoUrl = modalData.tracking_number ? getTrackingUrl(modalData.carrier, modalData.tracking_number) : null;
+                    const url = modalData.tracking_link || autoUrl;
+                    return url ? (
+                      <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                        <span style={{ color: C.muted }}>Preview:</span>
+                        <a href={url} target="_blank" rel="noreferrer" style={{ color: C.accent, textDecoration: 'none' }}>{url} ↗</a>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
               </div>
 
