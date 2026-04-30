@@ -301,6 +301,7 @@ export default async function handler(req, res) {
       items = [],
       push_to_shipstation: rawPushSS = false,
       project_id = null,
+      notify_recipient = false,
     } = req.body || {};
     // Only allow push if user has manual_push_ss permission or is super_admin
     const canPushSS = postUser.role === 'super_admin' || (postUser.permissions || []).includes('manual_push_ss');
@@ -383,9 +384,18 @@ export default async function handler(req, res) {
       ship_to_address:  orderPayload.ship_to_address,
       customer_company,
     };
+    // Build recipient list for confirmation email
+    const confirmRecipients = [];
+    // Always send to the logged-in user's own email
+    if (userEmail && userEmail.includes('@')) confirmRecipients.push(userEmail);
+    // Optionally also send to the recipient email filled in the order
+    if (notify_recipient && customer_email && customer_email.includes('@') && customer_email !== userEmail) {
+      confirmRecipients.push(customer_email);
+    }
+
     // await both emails so Vercel doesn't kill them before they complete
     await Promise.allSettled([
-      ...(userEmail && userEmail.includes('@') ? [sendOrderEmail('order_confirmation', fullOrderData, [userEmail])] : []),
+      ...(confirmRecipients.length > 0 ? [sendOrderEmail('order_confirmation', fullOrderData, confirmRecipients)] : []),
       sendOrderEmail('order_notification', fullOrderData, [notifyEmail]),
     ]);
 
