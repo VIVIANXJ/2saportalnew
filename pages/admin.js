@@ -1764,6 +1764,10 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
   // ── Modal state ───────────────────────────────────────────────
   const [modalOrder, setModalOrder] = useState(null); // full order object
   const [modalData,  setModalData]  = useState({});   // editable fields
+  const [trackModal, setTrackModal] = useState(null); // order for tracking update
+  const [trackData,  setTrackData]  = useState({ carrier: '', tracking_number: '', tracking_link: '' });
+  const [trackSaving, setTrackSaving] = useState(false);
+  const [trackMsg,    setTrackMsg]    = useState('');
   const [projects,   setProjects]   = useState([]);
   const emptyItem = { sku: '', product_name: '', quantity: 1 };
   useEffect(() => {
@@ -1845,6 +1849,39 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
   };
 
   const closeModal = () => { setModalOrder(null); setModalData({}); setSaveMsg(''); };
+
+  const openTrackModal = (order) => {
+    setTrackModal(order);
+    setTrackData({
+      carrier:         order.carrier         || '',
+      tracking_number: order.tracking_number || '',
+      tracking_link:   order.tracking_link   || '',
+    });
+    setTrackMsg('');
+  };
+
+  const saveTracking = async () => {
+    if (!trackModal) return;
+    setTrackSaving(true); setTrackMsg('');
+    try {
+      const res  = await fetch(`/api/orders/manual?id=${trackModal.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          carrier:         trackData.carrier,
+          tracking_number: trackData.tracking_number,
+          tracking_link:   trackData.tracking_link || null,
+          status:          trackData.tracking_number ? 'shipped' : trackModal.status,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+      setOrders(prev => prev.map(o => o.id === trackModal.id ? json.data : o));
+      setTrackMsg('✅ Tracking updated' + (trackData.tracking_number ? ' — shipping notification sent' : ''));
+      setTimeout(() => { setTrackModal(null); setTrackMsg(''); }, 2000);
+    } catch (e) { setTrackMsg(`❌ ${e.message}`); }
+    finally { setTrackSaving(false); }
+  };
 
   const setField = (k, v) => setModalData(p => ({ ...p, [k]: v }));
 
@@ -2086,9 +2123,14 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
                     {canViewAll && (
                       <td style={{ padding: '10px 12px', fontSize: 12, color: C.muted, fontFamily: 'monospace' }}>{order.created_by_username || '—'}</td>
                     )}
-                    <td style={{ padding: '10px 12px' }}>
+                    <td style={{ padding: '10px 12px', display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
                       {canDo('manual_edit') && (
-                        <button onClick={() => openModal(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        <button onClick={() => openTrackModal(order)} style={{ background: '#F0FDF4', color: '#15803D', border: `1px solid #BBF7D0`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          🚚 Tracking
+                        </button>
+                      )}
+                      {canDo('manual_edit') && (
+                        <button onClick={() => openModal(order)} style={{ background: C.accentDim, color: C.accent, border: `1px solid #BFDBFE`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                           ✏️ Edit
                         </button>
                       )}
@@ -2101,6 +2143,66 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
 
         </div>
         </>
+      )}
+
+      {/* ── Tracking Modal ── */}
+      {trackModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => e.target === e.currentTarget && setTrackModal(null)}>
+          <div style={{ background: C.bg, borderRadius: 16, padding: 28, width: 480, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Update Tracking</div>
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 2, fontFamily: 'monospace' }}>{trackModal.order_number}</div>
+              </div>
+              <button onClick={() => setTrackModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: C.muted }}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Carrier</span>
+                <select value={CARRIER_OPTIONS.includes(trackData.carrier) ? trackData.carrier : 'other'}
+                  onChange={e => setTrackData(p => ({ ...p, carrier: e.target.value === 'other' ? '' : e.target.value }))}
+                  style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text }}>
+                  <option value="">— Select carrier —</option>
+                  {CARRIER_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  <option value="other">Other (type below)</option>
+                </select>
+                {!CARRIER_OPTIONS.includes(trackData.carrier) && (
+                  <input value={trackData.carrier} onChange={e => setTrackData(p => ({ ...p, carrier: e.target.value }))}
+                    placeholder="Type carrier name..." style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text }} />
+                )}
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Tracking Number</span>
+                <input value={trackData.tracking_number} onChange={e => setTrackData(p => ({ ...p, tracking_number: e.target.value }))}
+                  placeholder="e.g. 7X1845783981Z" style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase' }}>Tracking Link <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></span>
+                <input value={trackData.tracking_link} onChange={e => setTrackData(p => ({ ...p, tracking_link: e.target.value }))}
+                  placeholder="https://..." style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.bg, color: C.text }} />
+              </label>
+              {trackData.tracking_number && (
+                <div style={{ fontSize: 12, color: C.muted, background: C.surfaceAlt, padding: '8px 12px', borderRadius: 8 }}>
+                  ℹ️ Saving will set status to <strong>Shipped</strong> and send a shipping notification to the order placer.
+                </div>
+              )}
+              {trackMsg && (
+                <div style={{ fontSize: 13, color: trackMsg.startsWith('✅') ? C.success : C.danger, background: trackMsg.startsWith('✅') ? C.successBg : C.dangerBg, padding: '8px 12px', borderRadius: 8 }}>
+                  {trackMsg}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button onClick={() => setTrackModal(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+                  Cancel
+                </button>
+                <button onClick={saveTracking} disabled={trackSaving} style={{ background: '#15803D', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: trackSaving ? 'not-allowed' : 'pointer' }}>
+                  {trackSaving ? 'Saving...' : '🚚 Save Tracking'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Edit Modal ───────────────────────────────────────── */}
