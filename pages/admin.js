@@ -4477,6 +4477,10 @@ function UserManagement({ token, user: currentUser }) {
                         .map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)
                       }
                     </select>
+                    <button onClick={() => setEditAllowedBillingGroups(billingGroups.map(bg => bg.name))}
+                      style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', border: `1px solid #BBF7D0`, background: 'none', color: '#15803D', whiteSpace: 'nowrap' }}>
+                      ✓ Select all
+                    </button>
                     {editAllowedBillingGroups.length > 0 && (
                       <button onClick={() => setEditAllowedBillingGroups([])}
                         style={{ padding: '8px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', border: `1px solid #FECACA`, background: 'none', color: C.danger, whiteSpace: 'nowrap' }}>
