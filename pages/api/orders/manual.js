@@ -39,7 +39,9 @@ async function deductStock(supabase, items) {
 // Send email notification via Resend directly (fire-and-forget)
 async function sendOrderEmail(type, order, recipients) {
   const apiKey = process.env.SENDGRID_API_KEY;
-  if (!apiKey || !recipients?.length) return;
+  const validRecipients = (recipients || []).filter(r => r && typeof r === 'string' && r.includes('@'));
+  if (!apiKey || !validRecipients.length) return;
+  recipients = validRecipients;
   try {
     // Dynamically build subject and html based on type
     const portalUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://2saportalnew.vercel.app';
@@ -63,7 +65,7 @@ async function sendOrderEmail(type, order, recipients) {
 
     const fromEmail = process.env.SENDGRID_FROM || 'vivian@2sa.com.au';
     const fromName  = process.env.SENDGRID_FROM_NAME || 'CCEP 3PL Portal';
-    console.log('[sendOrderEmail] sending', type, 'to', recipients, 'from', fromEmail);
+    console.log('[sendOrderEmail] sending', type, 'to', JSON.stringify(recipients), 'from', fromEmail, 'apiKey exists:', !!apiKey);
     const sgRes = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -77,7 +79,7 @@ async function sendOrderEmail(type, order, recipients) {
     const sgBody = await sgRes.text();
     console.log('[sendOrderEmail] status', sgRes.status, sgBody || '(no body = success)');
   } catch (e) {
-    console.error('[sendOrderEmail] error:', e.message);
+    console.error('[sendOrderEmail] error:', e.message, 'stack:', e.stack?.split('\n')[0]);
   }
 }
 
@@ -372,9 +374,7 @@ export default async function handler(req, res) {
       shipstation = await pushToShipStation(orderPayload);
     }
 
-    // Send order confirmation emails (fire-and-forget)
-    // 1. To the logged-in user's own email (from JWT token)
-    // 2. To the fixed notify email (NOTIFY_EMAIL env var, defaults to link@2sa.com.au)
+    // Send order confirmation emails
     const notifyEmail   = process.env.NOTIFY_EMAIL || 'link@2sa.com.au';
     const userEmail     = postUser.email || null;
     const fullOrderData = {
@@ -383,10 +383,11 @@ export default async function handler(req, res) {
       ship_to_address:  orderPayload.ship_to_address,
       customer_company,
     };
-    // Send to user's own email (if they have one set)
-    if (userEmail) sendOrderEmail('order_confirmation', fullOrderData, [userEmail]);
-    // Always notify the operations team
-    sendOrderEmail('order_notification', fullOrderData, [notifyEmail]);
+    // await both emails so Vercel doesn't kill them before they complete
+    await Promise.allSettled([
+      ...(userEmail && userEmail.includes('@') ? [sendOrderEmail('order_confirmation', fullOrderData, [userEmail])] : []),
+      sendOrderEmail('order_notification', fullOrderData, [notifyEmail]),
+    ]);
 
     return res.status(201).json({
       success: true,
