@@ -489,11 +489,29 @@ export default async function handler(req, res) {
     }
 
     // Send shipping notification if tracking was added and status is shipped
-    if (tracking_number && finalOrder?.status === 'shipped' && finalOrder?.customer_email) {
-      sendOrderEmail('shipping_notification', {
-        ...finalOrder,
-        ship_to_address: finalOrder.ship_to_address,
-      }, [finalOrder.customer_email]);
+    if (tracking_number && finalOrder?.status === 'shipped') {
+      // Get the order creator's email from admin_users
+      const supabase = getSupabase();
+      const createdBy = finalOrder.created_by_username;
+      let placerEmail = null;
+      if (createdBy) {
+        const { data: placerUser } = await supabase
+          .from('admin_users')
+          .select('email')
+          .eq('username', createdBy)
+          .single();
+        placerEmail = placerUser?.email || null;
+      }
+
+      const shippingRecipients = [];
+      if (placerEmail && placerEmail.includes('@')) shippingRecipients.push(placerEmail);
+
+      if (shippingRecipients.length > 0) {
+        await sendOrderEmail('shipping_notification', {
+          ...finalOrder,
+          ship_to_address: finalOrder.ship_to_address,
+        }, shippingRecipients);
+      }
     }
 
     return res.status(200).json({ success: true, data: finalOrder, shipstation });
