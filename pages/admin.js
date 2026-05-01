@@ -587,7 +587,18 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
   const [warehouseFilter,  setWarehouseFilter]  = useState('all');
   const [hideOutOfStock,   setHideOutOfStock]   = useState(false);
   const [hideNoBilling,    setHideNoBilling]    = useState(false);
-  const [cart,        setCart]        = useState([]); // [{sku, product_name, billing_group, quantity, image_url}]
+  // cart: persist in sessionStorage so it survives menu navigation within the same session
+  const [cart, setCart] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('2sa_cart');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Keep sessionStorage in sync whenever cart changes
+  useEffect(() => {
+    try { sessionStorage.setItem('2sa_cart', JSON.stringify(cart)); } catch {}
+  }, [cart]);
   const [showCart,    setShowCart]    = useState(false);
   const [skuNames,    setSkuNames]    = useState({});
   const [billingGroups, setBillingGroups] = useState([]);
