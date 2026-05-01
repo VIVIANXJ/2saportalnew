@@ -3640,11 +3640,29 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
       )}
 
       {/* Search */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(1)}
           placeholder="Search SKU or name..."
-          style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+          style={{ flex: 1, minWidth: 200, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, background: C.bg, color: C.text }} />
+        <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); }}
+          style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${sourceFilter ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: sourceFilter ? C.accent : C.muted }}>
+          <option value="">All Warehouses</option>
+          <option value="ECCANG">2SA Warehouse (ECCANG)</option>
+          <option value="JDL">JD-SYD1 / JD-MEL1 (JDL)</option>
+          <option value="MANUAL">Manual</option>
+        </select>
+        <select value={bgFilter} onChange={e => { setBgFilter(e.target.value); }}
+          style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${bgFilter ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: bgFilter ? C.accent : C.muted }}>
+          <option value="">All Billing Groups</option>
+          {billingGroups.map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)}
+        </select>
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
+        {(sourceFilter || bgFilter) && (
+          <button onClick={() => { setSourceFilter(''); setBgFilter(''); load(1); }}
+            style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
+            ✕ Clear
+          </button>
+        )}
       </div>
 
       {/* New product form */}
