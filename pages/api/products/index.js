@@ -27,6 +27,13 @@ export default async function handler(req, res) {
       const bgFilter = (req.query.billing_groups || '').split(',').map(s => s.trim()).filter(Boolean);
       if (bgFilter.length > 0) query = query.in('billing_group', bgFilter);
 
+      // Filter by source (ECCANG, JDL, MANUAL etc.)
+      const sourceFilter = (req.query.source || '').trim();
+      if (sourceFilter) query = query.eq('source', sourceFilter);
+
+      // Filter no-billing-group
+      if (req.query.no_billing === 'true') query = query.is('billing_group', null);
+
       const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
       return res.status(200).json({ success: true, count: (data||[]).length, data: data || [] });
