@@ -3388,8 +3388,16 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
   const [uploading,    setUploading]    = useState(null); // sku being uploaded
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkProgress,  setBulkProgress]  = useState({ done: 0, total: 0, errors: [] });
-  const [showBulk,     setShowBulk]     = useState(false);
+  const [showBulk,       setShowBulk]       = useState(false);
+  const [sourceFilter,   setSourceFilter]   = useState('');
+  const [bgProdFilter,   setBgProdFilter]   = useState('');
+  const [billingGrpList, setBillingGrpList] = useState([]);
   const PAGE_SIZE = 100;
+
+  useEffect(() => {
+    fetch('/api/billing-groups', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(j => setBillingGrpList(j.data || [])).catch(() => {});
+  }, []);
 
   // Single image upload
   const uploadImage = async (product, file) => {
@@ -3473,8 +3481,10 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: p, pageSize: PAGE_SIZE });
-      if (q.trim()) params.set('q', q.trim());
-      const res  = await fetch(`/api/products?${params}`);
+      if (q.trim())       params.set('q', q.trim());
+      if (sourceFilter)     params.set('source', sourceFilter);
+      if (bgProdFilter)     params.set('billing_groups', bgProdFilter);
+      const res  = await fetch(`/api/products?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       setProducts(json.data || []);
       setTotal(json.count || 0);
@@ -3651,14 +3661,14 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
           <option value="JDL">JD-SYD1 / JD-MEL1 (JDL)</option>
           <option value="MANUAL">Manual</option>
         </select>
-        <select value={bgFilter} onChange={e => { setBgFilter(e.target.value); }}
-          style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${bgFilter ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: bgFilter ? C.accent : C.muted }}>
+        <select value={bgProdFilter} onChange={e => { setBgProdFilter(e.target.value); }}
+          style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${bgProdFilter ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: bgProdFilter ? C.accent : C.muted }}>
           <option value="">All Billing Groups</option>
-          {billingGroups.map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)}
+          {billingGrpList.map(bg => <option key={bg.id} value={bg.name}>{bg.name}</option>)}
         </select>
         <button onClick={() => load(1)} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Search</button>
-        {(sourceFilter || bgFilter) && (
-          <button onClick={() => { setSourceFilter(''); setBgFilter(''); load(1); }}
+        {(sourceFilter || bgProdFilter) && (
+          <button onClick={() => { setSourceFilter(''); setBgProdFilter(''); load(1); }}
             style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: C.muted }}>
             ✕ Clear
           </button>
