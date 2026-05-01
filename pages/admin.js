@@ -3180,9 +3180,14 @@ function LocationDropdown({ token, value, onChange, placeholder, searchField }) 
               onMouseEnter={e => e.currentTarget.style.background = C.accentDim}
               onMouseLeave={e => e.currentTarget.style.background = ''}
             >
-              <div style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{loc.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 13, color: C.text }}>{loc.name}</span>
+                {loc.receiver_code && (
+                  <span style={{ fontSize: 11, fontFamily: 'monospace', color: C.accent, background: C.accentDim, padding: '1px 6px', borderRadius: 4 }}>{loc.receiver_code}</span>
+                )}
+              </div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                {[loc.company, loc.address1, loc.suburb, loc.state, loc.postcode].filter(Boolean).join(', ')}
+                {[loc.address1, loc.suburb, loc.state, loc.postcode].filter(Boolean).join(', ')}
               </div>
             </div>
           ))}
