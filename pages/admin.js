@@ -717,6 +717,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
   // Checkout submit
   const submitOrder = async () => {
     if (cart.length === 0) { setCheckoutError('Cart is empty'); return; }
+    if (!checkoutForm.reference_no?.trim()) { setCheckoutError('Reference No. is required'); return; }
     if (!checkoutForm.ship_to_name?.trim()) { setCheckoutError('Recipient name is required'); return; }
     if (!checkoutForm.address1?.trim()) { setCheckoutError('Address is required'); return; }
 
@@ -818,8 +819,8 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   <input value={checkoutForm.customer_company} onChange={e => setField('customer_company', e.target.value)} style={inp} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No.</span>
-                  <input value={checkoutForm.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} />
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No. *</span>
+                  <input value={checkoutForm.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} placeholder="Required" />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Phone</span>
@@ -1101,7 +1102,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
 }
 
 // ── Inventory View ─────────────────────────────────────────────
-function InventoryView({ token }) {
+function InventoryView({ token, isSuperAdmin }) {
   const [items,      setItems]      = useState([]);
   const [loading,    setLoading]    = useState(false);
   const [syncing,    setSyncing]    = useState(false);
@@ -1270,13 +1271,15 @@ function InventoryView({ token }) {
         {fromCache && (
           <span style={{ fontSize: 11, color: C.muted, marginRight: 4 }}>Auto-refreshes nightly at 2 AM AEST</span>
         )}
-        <button onClick={triggerSync} disabled={syncing} style={{
-          marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, cursor: syncing ? 'not-allowed' : 'pointer',
-          fontSize: 13, border: `1px solid ${C.border}`, background: C.surface, color: C.text,
-          fontWeight: 600, opacity: syncing ? 0.6 : 1,
-        }}>
-          {syncing ? '⏳ Syncing...' : '🔄 Sync Now'}
-        </button>
+        {isSuperAdmin && (
+          <button onClick={triggerSync} disabled={syncing} style={{
+            marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, cursor: syncing ? 'not-allowed' : 'pointer',
+            fontSize: 13, border: `1px solid ${C.border}`, background: C.surface, color: C.text,
+            fontWeight: 600, opacity: syncing ? 0.6 : 1,
+          }}>
+            {syncing ? '⏳ Syncing...' : '🔄 Sync Now'}
+          </button>
+        )}
       </div>
 
       {/* Filter bar — always visible, instant filter on loaded data */}
@@ -4732,7 +4735,7 @@ export default function AdminPage() {
           {section === 'order_type'     && can('order_type')      && <OrderTypeUpdate      token={token} />}
           {section === 'jdl_orders'     && can('jdl_orders')      && <JdlOrderSearch       token={token} />}
           {section === 'catalogue'     && can('catalogue')       && <ProductCatalogue     token={token} user={user} isSuperAdmin={user?.role === 'super_admin'} allowedBillingGroups={user?.allowed_billing_groups || []} />}
-          {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} />}
+          {section === 'inventory'      && can('inventory')       && <InventoryView        token={token} isSuperAdmin={user?.role === 'super_admin'} />}
           {section === 'upload'         && can('sync_eccang')     && <OrderUpload          token={token} />}
           {section === 'tracking'       && can('tracking')        && <TrackingUpdate       token={token} />}
           {section === 'locations'      && can('locations')         && <LocationManagement   token={token} />}
