@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     if (!all) query = query.eq('active', true);
     if (q?.trim()) {
-      query = query.or(`name.ilike.%${q.trim()}%,company.ilike.%${q.trim()}%,suburb.ilike.%${q.trim()}%,address1.ilike.%${q.trim()}%`);
+      query = query.or(`name.ilike.%${q.trim()}%,company.ilike.%${q.trim()}%,suburb.ilike.%${q.trim()}%,address1.ilike.%${q.trim()}%,receiver_code.ilike.%${q.trim()}%`);
     }
 
     // For dropdown: no pagination
