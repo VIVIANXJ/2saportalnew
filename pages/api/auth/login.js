@@ -7,16 +7,17 @@ const SUPER_ADMIN_PASS = process.env.ADMIN_PASSWORD;
 
 // All available permission modules
 export const ALL_PERMISSIONS = [
-  'manual_orders',   // View Manual Orders list
-  'manual_create',   // Create single Manual Order
-  'manual_bulk',     // Bulk upload Manual Orders
-  'eccang_orders',   // View ECCANG Orders
-  'jdl_orders',      // View JDL Orders
-  'order_type',      // Order Type settings
+  'manual_orders',   // View orders list
+  'manual_create',   // Create Order (full form)
+  'manual_bulk',     // Bulk upload orders
+  'manual_edit',     // Edit orders & update tracking
+  'manual_push_ss',  // Push to ShipStation
+  'view_all_orders', // View all users orders
+  'catalogue',       // Browse & Order (product catalogue cart)
   'inventory',       // View Inventory
-  'tracking',        // Update Tracking (ECCANG)
-  'sync_eccang',     // Sync ECCANG Orders
-  'user_management', // Manage admin users (super admin only)
+  'locations',       // View Address Book
+  'products_view',   // View/manage Products
+  'user_management', // Manage users, billing groups, projects
 ];
 
 function getSupabase() {
@@ -69,10 +70,11 @@ export default async function handler(req, res) {
   if (username === SUPER_ADMIN) {
     if (!SUPER_ADMIN_PASS) return res.status(500).json({ error: 'ADMIN_PASSWORD not configured' });
     if (password !== SUPER_ADMIN_PASS) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = makeToken(username, 'super_admin', ALL_PERMISSIONS);
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || null;
+    const token = makeToken(username, 'super_admin', ALL_PERMISSIONS, [], superAdminEmail);
     return res.status(200).json({
       success: true, token,
-      user: { username, role: 'super_admin', permissions: ALL_PERMISSIONS },
+      user: { username, role: 'super_admin', permissions: ALL_PERMISSIONS, email: superAdminEmail },
     });
   }
 
