@@ -303,8 +303,14 @@ export default async function handler(req, res) {
       project_id = null,
       notify_recipient = false,
     } = req.body || {};
+    // Check order creation permission: must have manual_create OR catalogue
+    const isSuperAdmin = postUser.role === 'super_admin';
+    const perms = postUser.permissions || [];
+    const canCreateOrder = isSuperAdmin || perms.includes('manual_create') || perms.includes('catalogue');
+    if (!canCreateOrder) return res.status(403).json({ error: 'You do not have permission to place orders' });
+
     // Only allow push if user has manual_push_ss permission or is super_admin
-    const canPushSS = postUser.role === 'super_admin' || (postUser.permissions || []).includes('manual_push_ss');
+    const canPushSS = isSuperAdmin || perms.includes('manual_push_ss');
     const push_to_shipstation = canPushSS && rawPushSS;
 
     if (!ship_to_name || !ship_to_address?.address1 || !ship_to_address?.suburb || !ship_to_address?.state || !ship_to_address?.postcode || !ship_to_address?.country) {
