@@ -3659,7 +3659,6 @@ function ProductManagement({ token, userPerms, isSuperAdmin }) {
           <option value="">All Warehouses</option>
           <option value="ECCANG">2SA Warehouse (ECCANG)</option>
           <option value="JDL">JD-SYD1 / JD-MEL1 (JDL)</option>
-          <option value="MANUAL">Manual</option>
         </select>
         <select value={bgProdFilter} onChange={e => { setBgProdFilter(e.target.value); }}
           style={{ padding: '9px 12px', borderRadius: 8, border: `1px solid ${bgProdFilter ? C.accent : C.border}`, fontSize: 13, background: C.bg, color: bgProdFilter ? C.accent : C.muted }}>
