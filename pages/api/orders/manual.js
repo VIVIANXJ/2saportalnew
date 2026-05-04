@@ -390,16 +390,16 @@ export default async function handler(req, res) {
       ship_to_address:  orderPayload.ship_to_address,
       customer_company,
     };
-    // Build recipient list for confirmation email
+    // Build confirmation recipient list:
+    // Always: logged-in user's email + notify email (link@2sa.com.au)
+    // If customer_email is filled in: also send to that address
     const confirmRecipients = [];
-    // Always send to the logged-in user's own email
     if (userEmail && userEmail.includes('@')) confirmRecipients.push(userEmail);
-    // Optionally also send to the recipient email filled in the order
-    if (notify_recipient && customer_email && customer_email.includes('@') && customer_email !== userEmail) {
+    if (customer_email && customer_email.includes('@') && customer_email !== userEmail) {
       confirmRecipients.push(customer_email);
     }
 
-    // await both emails so Vercel doesn't kill them before they complete
+    // await both so Vercel doesn't kill them before they complete
     await Promise.allSettled([
       ...(confirmRecipients.length > 0 ? [sendOrderEmail('order_confirmation', fullOrderData, confirmRecipients)] : []),
       sendOrderEmail('order_notification', fullOrderData, [notifyEmail]),
@@ -512,6 +512,11 @@ export default async function handler(req, res) {
 
       const shippingRecipients = [];
       if (placerEmail && placerEmail.includes('@')) shippingRecipients.push(placerEmail);
+      // Also send shipping notification to customer_email if present
+      const orderCustomerEmail = finalOrder.customer_email;
+      if (orderCustomerEmail && orderCustomerEmail.includes('@') && orderCustomerEmail !== placerEmail) {
+        shippingRecipients.push(orderCustomerEmail);
+      }
 
       if (shippingRecipients.length > 0) {
         await sendOrderEmail('shipping_notification', {
