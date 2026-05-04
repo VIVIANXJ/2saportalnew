@@ -841,7 +841,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   <input value={checkoutForm.email} onChange={e => setField('email', e.target.value)} style={inp} />
                   {checkoutForm.email && checkoutForm.email.includes('@') && (
                     <div style={{ fontSize: 11, color: C.success, marginTop: 4 }}>
-                      ✉️ Order confirmation will also be sent to this email
+                      ✉️ Order confirmation and shipping notification will also be sent to this email
                     </div>
                   )}
                 </label>
@@ -4638,7 +4638,7 @@ export default function AdminPage() {
       group: 'Orders',
       icon: '📝',
       items: [
-        { key: 'catalogue',     label: '🛒 Browse & Order', perm: 'catalogue' },
+        { key: 'catalogue',     label: 'Browse & Order', perm: 'catalogue' },
         { key: 'manual_orders', label: 'View Orders',        perm: 'manual_orders' },
         { key: 'manual_create', label: 'Create Order',       perm: 'manual_create' },
         { key: 'manual_bulk',   label: 'Bulk Upload',        perm: 'manual_bulk' },
