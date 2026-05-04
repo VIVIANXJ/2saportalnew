@@ -728,7 +728,6 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
   // Checkout submit
   const submitOrder = async () => {
     if (cart.length === 0) { setCheckoutError('Cart is empty'); return; }
-    if (!checkoutForm.reference_no?.trim()) { setCheckoutError('Reference No. is required'); return; }
     if (!checkoutForm.ship_to_name?.trim()) { setCheckoutError('Recipient name is required'); return; }
     if (!checkoutForm.address1?.trim()) { setCheckoutError('Address is required'); return; }
 
@@ -830,8 +829,8 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   <input value={checkoutForm.customer_company} onChange={e => setField('customer_company', e.target.value)} style={inp} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No. *</span>
-                  <input value={checkoutForm.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} placeholder="Required" />
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No.</span>
+                  <input value={checkoutForm.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Phone</span>
@@ -841,10 +840,9 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Email</span>
                   <input value={checkoutForm.email} onChange={e => setField('email', e.target.value)} style={inp} />
                   {checkoutForm.email && checkoutForm.email.includes('@') && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer', fontSize: 12, color: C.muted }}>
-                      <input type="checkbox" checked={checkoutForm.notify_recipient} onChange={e => setField('notify_recipient', e.target.checked)} />
-                      Also send order confirmation to this email
-                    </label>
+                    <div style={{ fontSize: 11, color: C.success, marginTop: 4 }}>
+                      ✉️ Order confirmation will also be sent to this email
+                    </div>
                   )}
                 </label>
               </div>
@@ -4661,7 +4659,6 @@ export default function AdminPage() {
       group: 'Catalogue',
       icon: '🛍️',
       items: [
-        { key: 'catalogue', label: 'Product Catalogue', perm: 'catalogue' },
       ],
     },
     {
