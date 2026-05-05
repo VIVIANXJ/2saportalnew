@@ -54,6 +54,12 @@ export default async function handler(req, res) {
     if (!all) query = query.eq('active', true);
     if (q?.trim()) query = query.or(`sku.ilike.%${q.trim()}%,product_name.ilike.%${q.trim()}%`);
 
+    // Apply source and billing_group filters in paginated mode too
+    const bgFilterPaged = (req.query.billing_groups || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (bgFilterPaged.length > 0) query = query.in('billing_group', bgFilterPaged);
+    const sourceFilterPaged = (req.query.source || '').trim();
+    if (sourceFilterPaged) query = query.eq('source', sourceFilterPaged);
+
     const { data, error, count } = await query;
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({
