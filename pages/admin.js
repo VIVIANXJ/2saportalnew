@@ -3064,7 +3064,7 @@ function ManualOrderCreate({ token, userPerms, isSuperAdmin, allowedBillingGroup
           <input value={form.phone} onChange={e => setField('phone', e.target.value)} placeholder="Phone" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
           <input value={form.email} onChange={e => setField('email', e.target.value)} placeholder="Email" style={{ padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         </div>
-        <textarea value={form.notes} onChange={e => setField('instructions', e.target.value)} placeholder="Instructions" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+        <textarea value={form.instructions} onChange={e => setField('instructions', e.target.value)} placeholder="Instructions" rows={2} style={{ marginTop: 10, width: '100%', padding: '10px 12px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
         <label style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
           <input type="checkbox" checked={form.push_to_shipstation && canPushSS} disabled={!canPushSS} onChange={e => setField('push_to_shipstation', e.target.checked)} />
           Push to ShipStation {!canPushSS && <span style={{fontSize:11,color:C.muted}}>(no permission)</span>}
@@ -3325,7 +3325,7 @@ function LocationManagement({ token }) {
               </select>
             </div>
             <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.special_instruction || ''} onChange={e => setField('special_instruction', e.target.value)} placeholder="e.g. Call before delivery, tailgate required..." style={{ ...iStyle, marginTop: 4 }} /></div>
-            <div style={{ gridColumn: 'span 3' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.instructions} onChange={e => setField('notes', e.target.value)} placeholder="Notes" style={{ ...iStyle, marginTop: 4 }} /></div>
+            <div style={{ gridColumn: 'span 3' }}><label style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>INSTRUCTIONS</label><input value={form.instructions} onChange={e => setField('instructions', e.target.value)} placeholder="e.g. Call before delivery, tailgate required..." style={{ ...iStyle, marginTop: 4 }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button onClick={save} disabled={saving} style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
