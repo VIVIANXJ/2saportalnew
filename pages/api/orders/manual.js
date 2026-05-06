@@ -352,7 +352,10 @@ export default async function handler(req, res) {
         notes:      orderPayload.notes,
         ...(project_id    ? { project_id }    : {}),
         ...(billing_group  ? { billing_group }  : {}),
-        ...(createdBy      ? { created_by_username: createdBy } : {}),
+        ...(createdBy          ? { created_by_username: createdBy } : {}),
+        ...(customer_email     ? { customer_email }     : {}),
+        ...(customer_phone     ? { customer_phone }     : {}),
+        ...(customer_company   ? { customer_company }   : {}),
       })
       .select()
       .single();
