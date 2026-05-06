@@ -514,6 +514,7 @@ export default async function handler(req, res) {
       if (placerEmail && placerEmail.includes('@')) shippingRecipients.push(placerEmail);
       // Also send shipping notification to customer_email if present
       const orderCustomerEmail = finalOrder.customer_email;
+      console.log('[shipping] placerEmail:', placerEmail, 'customerEmail:', orderCustomerEmail);
       if (orderCustomerEmail && orderCustomerEmail.includes('@') && orderCustomerEmail !== placerEmail) {
         shippingRecipients.push(orderCustomerEmail);
       }
