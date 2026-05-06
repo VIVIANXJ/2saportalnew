@@ -903,8 +903,8 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1/-1' }}>
-                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Notes</span>
-                  <textarea value={checkoutForm.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} />
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Notes or Special Instructions</span>
+                  <textarea value={checkoutForm.notes} onChange={e => setField('notes', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} placeholder="e.g. Tailgate required, call before delivery, leave at reception..." />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Project</span>
@@ -935,7 +935,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <button onClick={() => updateCartQty(it.sku, it.quantity - 1)} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                      <span style={{ fontSize: 13, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>{it.quantity}</span>
+                      <input type="number" min="1" max={getCartItemStock(it.sku) || 9999} value={it.quantity} onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) updateCartQty(it.sku, v); }} style={{ width: 44, textAlign: 'center', fontWeight: 600, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 4px', background: C.bg, color: C.text }} />
                       <button onClick={() => updateCartQty(it.sku, it.quantity + 1)} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
                     </div>
                   </div>
@@ -1088,7 +1088,7 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   ) : inCart ? (
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => updateCartQty(product.sku, inCart.quantity - 1)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>−</button>
-                      <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>{inCart.quantity}</span>
+                      <input type="number" min="1" max={sellable || 9999} value={inCart.quantity} onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) updateCartQty(product.sku, Math.min(v, sellable || v)); }} style={{ flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 14, border: `1px solid ${C.border}`, borderRadius: 8, padding: '4px', background: C.bg, color: C.text, minWidth: 0 }} />
                       <button onClick={() => updateCartQty(product.sku, inCart.quantity + 1)} disabled={sellable !== null && inCart.quantity >= sellable}
                         style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, cursor: 'pointer', fontWeight: 700, fontSize: 16 }}>+</button>
                     </div>
