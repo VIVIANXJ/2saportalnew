@@ -13,6 +13,7 @@ export const ALL_PERMISSIONS = [
   'manual_edit',     // Edit orders & update tracking
   'manual_push_ss',  // Push to ShipStation
   'view_all_orders', // View all users orders
+  'view_jd_orders',  // View JD warehouse orders only
   'catalogue',       // Browse & Order (product catalogue cart)
   'inventory',       // View Inventory
   'locations',       // View Address Book
