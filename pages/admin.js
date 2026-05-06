@@ -812,14 +812,14 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                     onChange={loc => {
                       setField('ship_to_name', loc.name || '');
                       if (!loc._freeInput) {
-                        setField('customer_company', loc.company || '');
+                        setField('customer_company', '');
                         setField('address1', loc.address1 || '');
                         setField('address2', loc.address2 || '');
                         setField('suburb', loc.suburb || '');
                         setField('state', loc.state || '');
                         setField('postcode', loc.postcode || '');
                         setField('country', loc.country || 'AU');
-                        setField('phone', loc.phone || '');
+                        setField('phone', loc.mobile || loc.phone || '');
                         setField('email', loc.email || '');
                       }
                     }} />
@@ -867,14 +867,14 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                       if (loc._freeInput) { setField('suburb', loc.suburb || ''); }
                       else {
                         setField('ship_to_name', loc.name || checkoutForm.ship_to_name);
-                        setField('customer_company', loc.company || '');
+                        setField('customer_company', '');
                         setField('address1', loc.address1 || '');
                         setField('address2', loc.address2 || '');
                         setField('suburb', loc.suburb || '');
                         setField('state', loc.state || '');
                         setField('postcode', loc.postcode || '');
                         setField('country', loc.country || 'AU');
-                        setField('phone', loc.phone || '');
+                        setField('phone', loc.mobile || loc.phone || '');
                         setField('email', loc.email || '');
                       }
                     }} />
