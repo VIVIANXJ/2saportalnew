@@ -174,6 +174,7 @@ export default async function handler(req, res) {
     const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1);
     const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize || '100', 10) || 100));
     const q = String(req.query.q || '').trim();
+    const warehouseFilter = String(req.query.warehouse_filter || '').trim();
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
@@ -214,6 +215,14 @@ export default async function handler(req, res) {
     // Non-super-admin users only see their own orders
     // unless they have 'view_all_orders' permission
     const canViewAll = isSuperAdmin || (tokenData?.permissions || []).includes('view_all_orders');
+
+    // Filter by warehouse location if requested (for view_jd_orders permission)
+    if (warehouseFilter === 'JD') {
+      query = query.or('warehouse_location.eq.JD-SYD1,warehouse_location.eq.JD-MEL1');
+    } else if (warehouseFilter) {
+      query = query.eq('warehouse_location', warehouseFilter);
+    }
+
     if (!canViewAll && currentUsername) {
       // Only show orders placed by this user
       // NULL created_by_username (legacy orders) are NOT shown to restricted users
@@ -302,6 +311,7 @@ export default async function handler(req, res) {
       push_to_shipstation: rawPushSS = false,
       project_id = null,
       notify_recipient = false,
+      warehouse_location = null,
     } = req.body || {};
     // Check order creation permission: must have manual_create OR catalogue
     const isSuperAdmin = postUser.role === 'super_admin';
@@ -356,6 +366,7 @@ export default async function handler(req, res) {
         ...(customer_email     ? { customer_email }     : {}),
         ...(customer_phone     ? { customer_phone }     : {}),
         ...(customer_company   ? { customer_company }   : {}),
+        ...(warehouse_location ? { warehouse_location } : {}),
       })
       .select()
       .single();
@@ -446,6 +457,7 @@ export default async function handler(req, res) {
     if (req.body?.billing_group  !== undefined) updates.billing_group  = req.body.billing_group  || null;
     if (req.body?.tracking_link          !== undefined) updates.tracking_link          = req.body.tracking_link          || null;
     if (req.body?.project_tracking_note  !== undefined) updates.project_tracking_note  = req.body.project_tracking_note  || null;
+    if (req.body?.warehouse_location     !== undefined) updates.warehouse_location     = req.body.warehouse_location     || null;
 
     const { data: order, error } = await supabase
       .from('orders')
