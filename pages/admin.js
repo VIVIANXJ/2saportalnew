@@ -762,7 +762,8 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
         },
         notes:        checkoutForm.notes,
         project_id:   checkoutForm.project_id || null,
-        billing_group: billingGroups[0] || null,
+        billing_group:      billingGroups[0] || null,
+        warehouse_location: 'JD-SYD1', // Catalogue orders default to JD warehouse
         push_to_shipstation: false,
         items: cart.map(it => ({ sku: it.sku, product_name: it.product_name, quantity: it.quantity })),
       };
@@ -810,9 +811,9 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                   <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Name *</span>
                   <LocationDropdown token={token} value={checkoutForm.ship_to_name} placeholder="Recipient name — type to search"
                     onChange={loc => {
-                      setField('ship_to_name', loc.name || '');
+                      setField('ship_to_name', loc.company || loc.name || '');
                       if (!loc._freeInput) {
-                        setField('customer_company', '');
+                        setField('customer_company', loc.name || '');
                         setField('address1', loc.address1 || '');
                         setField('address2', loc.address2 || '');
                         setField('suburb', loc.suburb || '');
@@ -866,8 +867,8 @@ function ProductCatalogue({ token, user, isSuperAdmin, allowedBillingGroups }) {
                     onChange={loc => {
                       if (loc._freeInput) { setField('suburb', loc.suburb || ''); }
                       else {
-                        setField('ship_to_name', loc.name || checkoutForm.ship_to_name);
-                        setField('customer_company', '');
+                        setField('ship_to_name', loc.company || loc.name || '');
+                        setField('customer_company', loc.name || '');
                         setField('address1', loc.address1 || '');
                         setField('address2', loc.address2 || '');
                         setField('suburb', loc.suburb || '');
@@ -1841,6 +1842,9 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
       // 拉全量数据（pageSize 500），本地做 fuzzy filter，不依赖服务端分页
       const params = new URLSearchParams({ page: 1, pageSize: 500 });
       if (q.trim()) params.set('q', q.trim());
+      // If user only has view_jd_orders (not view_all_orders), filter to JD warehouse orders
+      const isJdOnly = !canDo('view_all_orders') && canDo('view_jd_orders');
+      if (isJdOnly) params.set('warehouse_filter', 'JD');
       const res  = await fetch(`/api/orders/manual?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
       const data = json.data || [];
@@ -1967,7 +1971,8 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
         reference_no:    modalData.reference_no,
         status:          modalData.status,
         project_id:      modalData.project_id   || null,
-        billing_group:   modalData.billing_group || null,
+        billing_group:        modalData.billing_group        || null,
+        warehouse_location:   modalData.warehouse_location  || null,
         tracking_number: modalData.tracking_number,
         carrier:         modalData.carrier,
         tracking_link:   modalData.tracking_link || null,
@@ -2299,6 +2304,15 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Reference No.</span>
                     <input value={modalData.reference_no} onChange={e => setField('reference_no', e.target.value)} style={inp} />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Warehouse Location</span>
+                    <select value={modalData.warehouse_location || ''} onChange={e => setField('warehouse_location', e.target.value)} style={inp}>
+                      <option value="">— Not specified —</option>
+                      <option value="2SA">2SA Warehouse (ECCANG)</option>
+                      <option value="JD-SYD1">JD-SYD1 (Sydney)</option>
+                      <option value="JD-MEL1">JD-MEL1 (Melbourne)</option>
+                    </select>
                   </label>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Status</span>
@@ -4288,6 +4302,7 @@ function ProjectManagement({ token }) {
 const ALL_PERMISSIONS = [
   // Manual Orders
   { key: 'manual_orders',       label: 'View Orders',                 group: 'Orders' },
+  { key: 'view_jd_orders',      label: 'View JD Warehouse Orders Only', group: 'Orders' },
   { key: 'manual_create',       label: 'Create Order',               group: 'Orders' },
   { key: 'manual_bulk',         label: 'Bulk Upload',                group: 'Orders' },
   { key: 'manual_edit',         label: 'Edit / Update Tracking',     group: 'Orders' },
