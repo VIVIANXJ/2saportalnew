@@ -1842,8 +1842,10 @@ function ManualOrderManage({ token, userPerms, isSuperAdmin, allowedBillingGroup
       // 拉全量数据（pageSize 500），本地做 fuzzy filter，不依赖服务端分页
       const params = new URLSearchParams({ page: 1, pageSize: 500 });
       if (q.trim()) params.set('q', q.trim());
-      // If user only has view_jd_orders (not view_all_orders), filter to JD warehouse orders
-      const isJdOnly = !canDo('view_all_orders') && canDo('view_jd_orders');
+      // If user has view_jd_orders but NOT view_all_orders, filter to JD warehouse orders only
+      const hasJdPerm = (userPerms || []).includes('view_jd_orders');
+      const hasAllPerm = isSuperAdmin || (userPerms || []).includes('view_all_orders');
+      const isJdOnly = hasJdPerm && !hasAllPerm;
       if (isJdOnly) params.set('warehouse_filter', 'JD');
       const res  = await fetch(`/api/orders/manual?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const json = await res.json();
