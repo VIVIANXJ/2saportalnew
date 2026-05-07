@@ -214,11 +214,13 @@ export default async function handler(req, res) {
 
     // Non-super-admin users only see their own orders
     // unless they have 'view_all_orders' permission
-    const canViewAll = isSuperAdmin || (tokenData?.permissions || []).includes('view_all_orders');
+    const perms = tokenData?.permissions || [];
+    const canViewAll = isSuperAdmin || perms.includes('view_all_orders') || perms.includes('view_jd_orders');
 
     // Filter by warehouse location if requested (for view_jd_orders permission)
     if (warehouseFilter === 'JD') {
-      query = query.or('warehouse_location.eq.JD-SYD1,warehouse_location.eq.JD-MEL1');
+      // Show JD warehouse orders: JD-SYD1, JD-MEL1, or not yet assigned (NULL)
+      query = query.or('warehouse_location.eq.JD-SYD1,warehouse_location.eq.JD-MEL1,warehouse_location.is.null');
     } else if (warehouseFilter) {
       query = query.eq('warehouse_location', warehouseFilter);
     }
