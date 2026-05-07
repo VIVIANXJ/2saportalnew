@@ -220,7 +220,7 @@ export default async function handler(req, res) {
     // Filter by warehouse location if requested (for view_jd_orders permission)
     if (warehouseFilter === 'JD') {
       // Show JD warehouse orders: JD-SYD1, JD-MEL1, or not yet assigned (NULL)
-      query = query.or('warehouse_location.eq.JD-SYD1,warehouse_location.eq.JD-MEL1,warehouse_location.is.null');
+      query = query.or('warehouse_location.eq.JD-SYD1,warehouse_location.eq.JD-MEL1');
     } else if (warehouseFilter) {
       query = query.eq('warehouse_location', warehouseFilter);
     }
